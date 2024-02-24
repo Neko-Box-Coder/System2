@@ -8,8 +8,13 @@
 
 #include <stdio.h>
 
+#if SYSTEM2_IMPLEMENTATION
+    #define SYSTEM2_PREFIX inline
+#else
+    #define SYSTEM2_PREFIX
+#endif
 
-SYSTEM2_RESULT System2Run(const char* command, System2CommandInfo* outCommandInfo)
+SYSTEM2_PREFIX SYSTEM2_RESULT System2Run(const char* command, System2CommandInfo* outCommandInfo)
 {
     int result = pipe(outCommandInfo->ParentToChildPipes);
     if(result != 0)
@@ -69,10 +74,10 @@ SYSTEM2_RESULT System2Run(const char* command, System2CommandInfo* outCommandInf
     return SYSTEM2_RESULT_SUCCESS;
 }
 
-SYSTEM2_RESULT System2ReadFromOutput(   System2CommandInfo* info, 
-                                        char* outputBuffer, 
-                                        uint32_t outputBufferSize,
-                                        uint32_t* outBytesRead)
+SYSTEM2_PREFIX SYSTEM2_RESULT System2ReadFromOutput(System2CommandInfo* info, 
+                                                    char* outputBuffer, 
+                                                    uint32_t outputBufferSize,
+                                                    uint32_t* outBytesRead)
 {
     uint32_t readResult;
     
@@ -98,9 +103,9 @@ SYSTEM2_RESULT System2ReadFromOutput(   System2CommandInfo* info,
     return SYSTEM2_RESULT_SUCCESS;
 }
 
-SYSTEM2_RESULT System2WriteToInput( System2CommandInfo* info, 
-                                    const char* inputBuffer, 
-                                    const uint32_t inputBufferSize)
+SYSTEM2_PREFIX SYSTEM2_RESULT System2WriteToInput(  System2CommandInfo* info, 
+                                                    const char* inputBuffer, 
+                                                    const uint32_t inputBufferSize)
 {
     uint32_t currentWriteLengthLeft = inputBufferSize;
     
@@ -123,8 +128,8 @@ SYSTEM2_RESULT System2WriteToInput( System2CommandInfo* info,
     return SYSTEM2_RESULT_SUCCESS;
 }
 
-SYSTEM2_RESULT System2GetCommandReturnValueAsync(   System2CommandInfo* info, 
-                                                    int* outReturnCode)
+SYSTEM2_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueAsync(System2CommandInfo* info, 
+                                                                int* outReturnCode)
 {
     int status;
     pid_t pidResult = waitpid(info->ChildProcessID, &status, WNOHANG);
@@ -150,8 +155,8 @@ SYSTEM2_RESULT System2GetCommandReturnValueAsync(   System2CommandInfo* info,
     return SYSTEM2_RESULT_SUCCESS;
 }
 
-SYSTEM2_RESULT System2GetCommandReturnValueSync(System2CommandInfo* info, 
-                                                int* outReturnCode)
+SYSTEM2_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync( System2CommandInfo* info, 
+                                                                int* outReturnCode)
 {
     int status;
     pid_t pidResult = waitpid(info->ChildProcessID, &status, 0);
@@ -265,6 +270,8 @@ void tempLinux()
 #endif
 
 #if 0
+https://learn.microsoft.com/en-us/windows/win32/procthread/creating-a-child-process-with-redirected-input-and-output
+
 void tempWindows()
 {
     wchar_t command[] = L"nslookup myip.opendns.com. resolver1.opendns.com";
