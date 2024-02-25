@@ -415,7 +415,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         }
         
         commandCopy[commandPrefixLength] = '"';
-        result = strcpy_s(c ommandCopy + commandPrefixLength + 1, 
+        result = strcpy_s(  commandCopy + commandPrefixLength + 1, 
                             finalCommandLength - commandPrefixLength - 1, 
                             command);
         
