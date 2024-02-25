@@ -1,6 +1,6 @@
 ### System2
 
-`System2` is a cross-platform c library that allows you to call system commands, just like `system` but with the ability to
+`System2` is a cross-platform c library that allows you to call shell commands, just like `system` but with the ability to
 provide input to stdin and capture the output from stdout and stderr.
 
 ```text
