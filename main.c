@@ -1,56 +1,56 @@
+#if USE_SYSTEM2_SOURCE
+    #define SYSTEM2_DECLARATION_ONLY 1
+#endif
+
 #include "System2.h"
 #include <stdio.h>
+
+#define EXIT_IF_FAILED(result) \
+if(result != SYSTEM2_RESULT_SUCCESS) \
+{\
+    printf("Error at %d: %d", __LINE__, result);\
+    return -1;\
+}
 
 int main(int argc, char** argv) 
 {
     System2CommandInfo commandInfo;
-    
-    #ifdef __unix__
-        System2Run("read testVar && echo testVar is \\\"$testVar\\\"", &commandInfo);
-    #endif
-    
     SYSTEM2_RESULT result;
     
-    #ifdef _WIN32
-        result = System2Run("set /p testVar= && cmd /s /v /c \"echo testVar is ^\"!testVar!^\"\"", &commandInfo);
-        //result = System2Run("dir", &commandInfo);
+    #ifdef __unix__
+        result = System2Run("read testVar && echo testVar is \\\"$testVar\\\"", &commandInfo);
     #endif
     
-    if(result != SYSTEM2_RESULT_SUCCESS) 
-    {
-        printf("Error System2Run: %d\n", result);
-        return -1;
-    }
+    #ifdef _WIN32
+        result = System2Run("set /p testVar= && cmd /s /v /c \"echo testVar is ^\"!testVar!^\"\"", 
+                            &commandInfo);
+    #endif
+    
+    EXIT_IF_FAILED(result);
     
     char input[] = "test content\n";
     result = System2WriteToInput(&commandInfo, input, sizeof(input));
+    EXIT_IF_FAILED(result);
     
+    //Waiting here simulates the child process has "finished" and we read the output of it
     //Sleep(2000);
-    
-    if(result != SYSTEM2_RESULT_SUCCESS) 
-    {
-        printf("Error System2WriteToInput: %d\n", result);
-        return -1;
-    }
     
     char outputBuffer[1024];
     uint32_t bytesRead = 0;
+    
+    //System2ReadFromOutput can also return SYSTEM2_RESULT_READ_NOT_FINISHED if we have more to read
     result = System2ReadFromOutput(&commandInfo, outputBuffer, 1023, &bytesRead);
+    EXIT_IF_FAILED(result);
     outputBuffer[bytesRead] = 0;
     
-    if(result != SYSTEM2_RESULT_SUCCESS) 
-    {
-        printf("Error System2ReadFromOutput: %d\n", result);
-        return -1;
-    }
-    
     int returnCode;
-    if(result != System2GetCommandReturnValueSync(&commandInfo, &returnCode))
-    {
-        printf("Error System2GetCommandReturnValueSync: %d\n", result);
-        return -1;
-    }
+    result = System2GetCommandReturnValueSync(&commandInfo, &returnCode);
+    EXIT_IF_FAILED(result);
     
-    printf("%s", outputBuffer);
+    printf("%s: %d\n", "Command has executed with return value", returnCode);
+    printf("%s\n", outputBuffer);
     return 0;
+    
+    //Output: Command has executed with return value: : 0
+    //Output: testVar is "test content"
 }
