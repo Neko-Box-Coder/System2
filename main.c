@@ -22,7 +22,7 @@ int main(int argc, char** argv)
     #endif
     
     #if defined(_WIN32)
-        result = System2Run("set /p testVar= && cmd /s /v /c \"echo testVar is ^\"!testVar!^\"\"", 
+        result = System2Run("set /p testVar= && cmd /s /v /c \"echo testVar is \"!testVar!\"\"", 
                             &commandInfo);
     #endif
     
