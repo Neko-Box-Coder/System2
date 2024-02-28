@@ -38,11 +38,11 @@ int main(int argc, char** argv)
 {
     System2CommandInfo commandInfo;
 
-    #ifdef __unix__
+    #if defined(__unix__) || defined(__APPLE__)
         System2Run("read testVar && echo testVar is \\\"$testVar\\\"", &commandInfo);
     #endif
     
-    #ifdef _WIN32
+    #if defined(_WIN32)
         System2Run( "set /p testVar= && cmd /s /v /c \"echo testVar is ^\"!testVar!^\"\"", 
                     &commandInfo);
     #endif

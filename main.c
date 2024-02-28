@@ -17,11 +17,11 @@ int main(int argc, char** argv)
     System2CommandInfo commandInfo;
     SYSTEM2_RESULT result;
     
-    #ifdef __unix__
+    #if defined(__unix__) || defined(__APPLE__)
         result = System2Run("read testVar && echo testVar is \\\"$testVar\\\"", &commandInfo);
     #endif
     
-    #ifdef _WIN32
+    #if defined(_WIN32)
         result = System2Run("set /p testVar= && cmd /s /v /c \"echo testVar is ^\"!testVar!^\"\"", 
                             &commandInfo);
     #endif

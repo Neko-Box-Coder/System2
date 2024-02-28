@@ -13,19 +13,19 @@ If you do not want to use header only due to system header leakage
 */
 
 #if SYSTEM2_DECLARATION_ONLY
-    #if __unix__
+    #if defined(__unix__) || defined(__APPLE__)
         typedef int pid_t;
     #endif
     
-    #if _WIN32
+    #if defined(_WIN32)
         typedef void* HANDLE;
     #endif
 #else
-    #ifdef __unix__
+    #if defined(__unix__) || defined(__APPLE__)
         #include <unistd.h>
     #endif
 
-    #ifdef _WIN32
+    #if defined(_WIN32)
         #include <windows.h>
     #endif
 #endif
@@ -41,13 +41,13 @@ If you do not want to use header only due to system header leakage
 
 typedef struct
 {
-    #ifdef __unix__
+    #if defined(__unix__) || defined(__APPLE__)
         int ParentToChildPipes[2];
         int ChildToParentPipes[2];
         pid_t ChildProcessID;
     #endif
     
-    #ifdef _WIN32
+    #if defined(_WIN32)
         HANDLE ParentToChildPipes[2];
         HANDLE ChildToParentPipes[2];
         HANDLE ChildProcessHandle;
@@ -161,7 +161,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
 #include <stdlib.h>
 #include <stdbool.h>
 
-#ifdef __unix__
+#if defined(__unix__) || defined(__APPLE__)
     #include <sys/wait.h>
 
     SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2RunPosix( const char* command, 
@@ -203,6 +203,42 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
             result = dup2(outCommandInfo->ChildToParentPipes[1], STDERR_FILENO);
             if(result == -1)
                 exit(1);
+            
+            const int commandLength = strlen(command);
+            int quoteCount = 0;
+            for(int i = 0; i < commandLength; ++i)
+            {
+                if(command[i] == '"')
+                    quoteCount++;
+            }
+            
+            const int finalCommandLength =  commandLength +     //Content
+                                            quoteCount * 2 +    //Quotes to escape
+                                            2 +                 //Wrapping in double quotes
+                                            1;                  //Null terminator
+        
+            char* commandCopy = (char*)malloc(finalCommandLength);
+            if(commandCopy == NULL)
+                return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
+
+            commandCopy[0] = '"';
+            int currentIndex = 1;
+            for(int i = 0; i < commandLength; ++i)
+            {
+                if(command[i] == '"')
+                {
+                    commandCopy[currentIndex] = '\\';
+                    commandCopy[currentIndex + 1] = '"';
+                    currentIndex += 2;
+                }
+                else
+                {
+                    commandCopy[currentIndex] = command[i];
+                    currentIndex++;
+                }
+            }
+            commandCopy[currentIndex] = '"';
+            commandCopy[currentIndex + 1] = '\0';
             
             execlp("sh", "sh", "-c", command, NULL);
             
@@ -335,7 +371,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
     }
 #endif
 
-#ifdef _WIN32
+#if defined(_WIN32)
     SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2RunWindows(   const char* command, 
                                                             System2CommandInfo* outCommandInfo)
     {
@@ -580,7 +616,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
 
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2Run(const char* command, System2CommandInfo* outCommandInfo)
 {
-    #ifdef __unix__
+    #if defined(__unix__) || defined(__APPLE__)
         return System2RunPosix(command, outCommandInfo);
     #elif defined(_WIN32)
         return System2RunWindows(command, outCommandInfo);
@@ -594,7 +630,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2ReadFromOutput(   const System2Command
                                                             uint32_t outputBufferSize,
                                                             uint32_t* outBytesRead)
 {
-    #ifdef __unix__
+    #if defined(__unix__) || defined(__APPLE__)
         return System2ReadFromOutputPosix(info, outputBuffer, outputBufferSize, outBytesRead);
     #elif defined(_WIN32)
         return System2ReadFromOutputWindows(info, outputBuffer, outputBufferSize, outBytesRead);
@@ -607,7 +643,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2WriteToInput( const System2CommandInfo
                                                         const char* inputBuffer, 
                                                         const uint32_t inputBufferSize)
 {
-    #ifdef __unix__
+    #if defined(__unix__) || defined(__APPLE__)
         return System2WriteToInputPosix(info, inputBuffer, inputBufferSize);
     #elif defined(_WIN32)
         return System2WriteToInputWindows(info, inputBuffer, inputBufferSize);
@@ -620,7 +656,7 @@ SYSTEM2_FUNC_PREFIX
 SYSTEM2_RESULT System2GetCommandReturnValueAsync(   const System2CommandInfo* info, 
                                                     int* outReturnCode)
 {
-    #ifdef __unix__
+    #if defined(__unix__) || defined(__APPLE__)
         return System2GetCommandReturnValueAsyncPosix(info, outReturnCode);
     #elif defined(_WIN32)
         return System2GetCommandReturnValueAsyncWindows(info, outReturnCode);
@@ -633,7 +669,7 @@ SYSTEM2_FUNC_PREFIX
 SYSTEM2_RESULT System2GetCommandReturnValueSync(const System2CommandInfo* info, 
                                                 int* outReturnCode)
 {
-    #ifdef __unix__
+    #if defined(__unix__) || defined(__APPLE__)
         return System2GetCommandReturnValueSyncPosix(info, outReturnCode);
     #elif defined(_WIN32)
         return System2GetCommandReturnValueSyncWindows(info, outReturnCode);
