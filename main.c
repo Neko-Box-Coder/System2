@@ -39,6 +39,7 @@ int main(int argc, char** argv)
     uint32_t bytesRead = 0;
     
     //System2ReadFromOutput can also return SYSTEM2_RESULT_READ_NOT_FINISHED if we have more to read
+    //In which case can use a do while loop to keep getting the output
     result = System2ReadFromOutput(&commandInfo, outputBuffer, 1023, &bytesRead);
     EXIT_IF_FAILED(result);
     outputBuffer[bytesRead] = 0;

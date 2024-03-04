@@ -78,7 +78,10 @@ typedef enum
 } SYSTEM2_RESULT;
 
 /*
-Runs the command and stores the internal details in outCommandInfo
+Runs the command and stores the internal details in outCommandInfo.
+This uses 
+`execl("/bin/sh", "sh", "-c", command, NULL);` for POSIX and
+`cmd /s /v /c "command"` for Windows
 
 Could return the follow result:
 - SYSTEM2_RESULT_SUCCESS
@@ -174,36 +177,12 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         result = pipe(outCommandInfo->ChildToParentPipes);
         if(result != 0)
             return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
-        
-        pid_t pid = fork();
-        
-        if(pid < 0)
-            return SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED;
-        //Child
-        else if(pid == 0)
-        {
-            if(close(outCommandInfo->ParentToChildPipes[SYSTEM2_FD_WRITE]) != 0)
-                exit(1);
-            
-            if(close(outCommandInfo->ChildToParentPipes[SYSTEM2_FD_READ]) != 0)
-                exit(1);
-            
-            //close(STDIN_FILENO);
-            //close(STDOUT_FILENO);
-            //close(STDERR_FILENO);
-            
-            result = dup2(outCommandInfo->ParentToChildPipes[0], STDIN_FILENO);
-            if(result == -1)
-                exit(1);
 
-            result = dup2(outCommandInfo->ChildToParentPipes[1], STDOUT_FILENO);
-            if(result == -1)
-                exit(1);
-            
-            result = dup2(outCommandInfo->ChildToParentPipes[1], STDERR_FILENO);
-            if(result == -1)
-                exit(1);
-            
+        char* commandCopy = NULL;
+
+        //Process the command and make a copy on the parent process 
+        //because malloc is not safe in forked child processes
+        {
             const int commandLength = strlen(command);
             int quoteCount = 0;
             for(int i = 0; i < commandLength; ++i)
@@ -217,7 +196,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                                             2 +                 //Wrapping in double quotes
                                             1;                  //Null terminator
         
-            char* commandCopy = (char*)malloc(finalCommandLength);
+            commandCopy = (char*)malloc(finalCommandLength);
             if(commandCopy == NULL)
                 return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
 
@@ -239,16 +218,48 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
             }
             commandCopy[currentIndex] = '"';
             commandCopy[currentIndex + 1] = '\0';
+        }
+        
+        pid_t pid = fork();
+        
+        if(pid < 0)
+        {
+            free(commandCopy);
+            return SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED;
+        }
+        //Child
+        else if(pid == 0)
+        {
+            if(close(outCommandInfo->ParentToChildPipes[SYSTEM2_FD_WRITE]) != 0)
+                _exit(1);
             
-            execlp("sh", "sh", "-c", command, NULL);
+            if(close(outCommandInfo->ChildToParentPipes[SYSTEM2_FD_READ]) != 0)
+                _exit(1);
+            
+            
+            result = dup2(outCommandInfo->ParentToChildPipes[0], STDIN_FILENO);
+            if(result == -1)
+                _exit(1);
+
+            result = dup2(outCommandInfo->ChildToParentPipes[1], STDOUT_FILENO);
+            if(result == -1)
+                _exit(1);
+            
+            result = dup2(outCommandInfo->ChildToParentPipes[1], STDERR_FILENO);
+            if(result == -1)
+                _exit(1);
+            
+            execl("/bin/sh", "sh", "-c", command, NULL);
             
             //Should never be reached
             
-            exit(1);
+            _exit(1);
         }
         //Parent
         else
         {
+            free(commandCopy);
+            
             if(close(outCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ]) != 0)
                 return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
             

@@ -17,7 +17,7 @@ provide input to stdin and capture the output from stdout and stderr.
 #### Features
 
 - Written in C99, and is ready to be used in C++ as well
-- Cross-platform (Posix and Windows)
+- Cross-platform (POSIX and Windows)
 - Command interaction with stdin, stdout, and stderr
 - Blocking (sync) and non-blocking (async) version
 - No dependencies (only standard C and system libraries).
@@ -28,7 +28,7 @@ provide input to stdin and capture the output from stdout and stderr.
 #### API Documentation
 Just read the header file `System2.h`. Everything is documented there.
 
-#### Minimum running example
+#### Minimum running example (Without checks)
 
 ```c
 #include "System2.h"
@@ -57,6 +57,7 @@ int main(int argc, char** argv)
     uint32_t bytesRead = 0;
     
     //System2ReadFromOutput can also return SYSTEM2_RESULT_READ_NOT_FINISHED if we have more to read
+    //In which case can use a do while loop to keep getting the output
     System2ReadFromOutput(&commandInfo, outputBuffer, 1023, &bytesRead);
     outputBuffer[bytesRead] = 0;
     
