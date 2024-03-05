@@ -386,25 +386,19 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
     SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2RunWindows(   const char* command, 
                                                             System2CommandInfo* outCommandInfo)
     {
-        SECURITY_ATTRIBUTES pipeSecurityAttributes; 
-        
-        pipeSecurityAttributes.nLength = sizeof(SECURITY_ATTRIBUTES); 
-        pipeSecurityAttributes.bInheritHandle = TRUE;
-        pipeSecurityAttributes.lpSecurityDescriptor = NULL; 
-
         // Create a pipe for the child process's STDOUT. 
         if(!CreatePipe( &outCommandInfo->ChildToParentPipes[SYSTEM2_FD_READ], 
                         &outCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE], 
-                        &pipeSecurityAttributes, 
+                        NULL, 
                         0))
         {
             return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
         }
 
-        // Ensure the read handle to the pipe for STDOUT is not inherited.
-        if(!SetHandleInformation(   outCommandInfo->ChildToParentPipes[SYSTEM2_FD_READ], 
+        // Set the write handle to the pipe for STDOUT to be inherited.
+        if(!SetHandleInformation(   outCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE], 
                                     HANDLE_FLAG_INHERIT, 
-                                    0))
+                                    HANDLE_FLAG_INHERIT))
         {
             return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
         }
@@ -412,16 +406,16 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         // Create a pipe for the child process's STDIN. 
         if(!CreatePipe( &outCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ], 
                         &outCommandInfo->ParentToChildPipes[SYSTEM2_FD_WRITE], 
-                        &pipeSecurityAttributes, 
+                        NULL, 
                         0))
         {
             return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
         }
 
-        // Ensure the write handle to the pipe for STDIN is not inherited. 
-        if(!SetHandleInformation(   outCommandInfo->ParentToChildPipes[SYSTEM2_FD_WRITE], 
+        // Set the read handle to the pipe for STDIN to be inherited. 
+        if(!SetHandleInformation(   outCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ], 
                                     HANDLE_FLAG_INHERIT, 
-                                    0))
+                                    HANDLE_FLAG_INHERIT))
         {
             return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
         }
