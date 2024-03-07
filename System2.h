@@ -191,12 +191,12 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                     quoteCount++;
             }
             
-            const int finalCommandLength =  commandLength +     //Content
+            const int finalCommandSize =    commandLength +     //Content
                                             quoteCount * 2 +    //Quotes to escape
                                             2 +                 //Wrapping in double quotes
                                             1;                  //Null terminator
         
-            commandCopy = (char*)malloc(finalCommandLength);
+            commandCopy = (char*)malloc(finalCommandSize);
             if(commandCopy == NULL)
                 return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
 
@@ -420,18 +420,17 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
             return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
         }
         
-        
-        PROCESS_INFORMATION processInfo; 
-        STARTUPINFO startupInfo;
+        PROCESS_INFORMATION processInfo;
+        STARTUPINFOW startupInfo;
         BOOL success = FALSE; 
         
         // Set up members of the PROCESS_INFORMATION structure. 
         ZeroMemory( &processInfo, sizeof(PROCESS_INFORMATION) );
-        
+    
         // Set up members of the STARTUPINFO structure. 
         // This structure specifies the STDIN and STDOUT handles for redirection.
-        ZeroMemory( &startupInfo, sizeof(STARTUPINFO) );
-        startupInfo.cb = sizeof(STARTUPINFO); 
+        ZeroMemory(&startupInfo, sizeof(STARTUPINFOW));
+        startupInfo.cb = sizeof(STARTUPINFOW); 
         startupInfo.hStdError = outCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE];
         startupInfo.hStdOutput = outCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE];
         startupInfo.hStdInput = outCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ];
@@ -440,15 +439,15 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         // Create the child process.
         // cmd /s /v /c "command"
         const char commandPrefix[] = "cmd /s /v /c ";
-        const int commandLength = strlen(command);
-        const int commandPrefixLength = strlen(commandPrefix);
-        const int finalCommandLength = commandLength + commandPrefixLength + 2 + 1;
+        const int commandLength = (int)strlen(command);
+        const int commandPrefixLength = (int)strlen(commandPrefix);
+        const int finalCommandSize = commandLength + commandPrefixLength + 2 + 1;
         
-        char* commandCopy = (char*)malloc(finalCommandLength);
+        char* commandCopy = (char*)malloc(finalCommandSize);
         if(commandCopy == NULL)
             return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
 
-        errno_t result = strcpy_s(commandCopy, finalCommandLength, commandPrefix);
+        errno_t result = strcpy_s(commandCopy, finalCommandSize, commandPrefix);
         if(result != 0)
         {
             free(commandCopy);
@@ -457,7 +456,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         
         commandCopy[commandPrefixLength] = '"';
         result = strcpy_s(  commandCopy + commandPrefixLength + 1, 
-                            finalCommandLength - commandPrefixLength - 1, 
+                            finalCommandSize - commandPrefixLength - 1, 
                             command);
         
         if(result != 0)
@@ -466,21 +465,47 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
             return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
         }
         
-        commandCopy[finalCommandLength - 2] = '"';
-        commandCopy[finalCommandLength - 1] = '\0';
+        commandCopy[finalCommandSize - 2] = '"';
+        commandCopy[finalCommandSize - 1] = '\0';
         
-        success = CreateProcessA(   NULL, 
-                                    commandCopy,    // command line 
-                                    NULL,           // process security attributes 
-                                    NULL,           // primary thread security attributes 
-                                    TRUE,           // handles are inherited 
-                                    0,              // creation flags 
-                                    NULL,           // use parent's environment 
-                                    NULL,           // use parent's current directory 
-                                    &startupInfo,   // STARTUPINFO pointer 
-                                    &processInfo);  // receives PROCESS_INFORMATION 
+        int wideStringSize = MultiByteToWideChar(CP_UTF8, 0, commandCopy, -1, NULL, 0);
+        
+        if(wideStringSize <= 0)
+        {
+            free(commandCopy);
+            return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
+        }
+        
+        wchar_t* commandCopyWide = (wchar_t*)malloc(wideStringSize * sizeof(wchar_t));
+        
+        wideStringSize = MultiByteToWideChar(CP_UTF8, 
+                                            0, 
+                                            commandCopy, 
+                                            -1, 
+                                            commandCopyWide, 
+                                            wideStringSize);
+
+        if(wideStringSize <= 0)
+        {
+            free(commandCopy);
+            free(commandCopyWide);
+            return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
+        }
+
+        success = CreateProcessW(   NULL, 
+                                    commandCopyWide,    // command line 
+                                    NULL,               // process security attributes 
+                                    NULL,               // primary thread security attributes 
+                                    TRUE,               // handles are inherited 
+                                    CREATE_NO_WINDOW,   // creation flags 
+                                    NULL,               // use parent's environment 
+                                    NULL,               // use parent's current directory 
+                                    &startupInfo,       // STARTUPINFO pointer 
+                                    &processInfo);      // receives PROCESS_INFORMATION 
+        
         
         free(commandCopy);
+        free(commandCopyWide);
         
         // If an error occurs, exit the application. 
         if(!success)

@@ -23,7 +23,10 @@ provide input to stdin and capture the output from stdout and stderr.
 - No dependencies (only standard C and system libraries).
     No longer need a heavy framework like boost or poco just to capture output from running a command.
 - Header only library (source version available as well)
+- UTF-8 support\*
 - CMake integration
+
+\* See Remarks for UTF-8 support
 
 #### API Documentation
 Just read the header file `System2.h`. Everything is documented there.
@@ -87,3 +90,16 @@ In that case, you can use the source version of the library.
     - Add `System2.c` to you codebase
     - Or include `System2.h` in a single c file and define `SYSTEM2_IMPLEMENTATION_ONLY 1` before it
     - Or link your project with `System2` target in CMake`
+
+---
+#### Remarks
+- For POSIX, UTF-8 support should work if it is available on the system. This is however **not tested**.
+- For Windows, UTF-8 support works for the **command** input (in theory XP and above but tested on Windows 10). 
+    However, the output part is **NOT** in UTF-8. The closest thing you can get for the output is UTF-16 as far as I know.
+    Here's what needed to get output in UTF-16:
+    1. Instead of `System2Run("<your command>", &commandInfo)`, do `System2Run("cmd /u /s /v /c \"<your command>\"", &commandInfo)`
+        This will output a UTF-16 string from cmd stdout/stderr
+    2. Read output as usual from `System2ReadFromOutput` but interpret the output as wchar_t string instead.
+        - You can then use `WideCharToMultiByte` to convert the output to UTF-8 if needed
+    3. If you want to output the UTF-16 output to console, you need to use `_setmode` before calling `wprintf`/`printf`
+        - See [this](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/setmode?view=msvc-170) for `_setmode` example
