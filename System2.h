@@ -531,6 +531,9 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         }
     }
     
+    //TODO: Use peeknamedpipe to get number of bytes available before reading it 
+    //      so that it doesn't block
+    //https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-peeknamedpipe
     SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2ReadFromOutputWindows(const System2CommandInfo* info, 
                                                                     char* outputBuffer, 
                                                                     uint32_t outputBufferSize,
