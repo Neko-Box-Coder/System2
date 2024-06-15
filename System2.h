@@ -23,9 +23,12 @@ If you do not want to use header only due to system header leakage
 #else
     #if defined(__unix__) || defined(__APPLE__)
         #include <unistd.h>
+        #include <errno.h>
+        #include <stdio.h>
     #endif
 
     #if defined(_WIN32)
+        #define _CRT_SECURE_NO_WARNINGS
         #include <windows.h>
     #endif
 #endif
@@ -38,9 +41,14 @@ If you do not want to use header only due to system header leakage
 
 #include <stdint.h>
 #include <string.h>
+#include <stdbool.h>
 
 typedef struct
 {
+    bool RedirectInput;         //Redirect input with pipe?
+    bool RedirectOutput;        //Redirect output with pipe?
+    char* RunDirectory;         //The directory to run the command in?
+    
     #if defined(__unix__) || defined(__APPLE__)
         int ParentToChildPipes[2];
         int ChildToParentPipes[2];
@@ -48,6 +56,7 @@ typedef struct
     #endif
     
     #if defined(_WIN32)
+        bool DisableEscapes;    //Disable automatic escaping?
         HANDLE ParentToChildPipes[2];
         HANDLE ChildToParentPipes[2];
         HANDLE ChildProcessHandle;
@@ -78,10 +87,12 @@ typedef enum
 } SYSTEM2_RESULT;
 
 /*
-Runs the command and stores the internal details in outCommandInfo.
+Runs the command in system shell just like the `system()` funcion with the given settings 
+    passed with `inOutCommandInfo`.
+
 This uses 
-`execl("/bin/sh", "sh", "-c", command, NULL);` for POSIX and
-`cmd /s /v /c "command"` for Windows
+`sh -c command` for POSIX and
+`cmd /s /v /c command` for Windows
 
 Could return the follow result:
 - SYSTEM2_RESULT_SUCCESS
@@ -91,7 +102,26 @@ Could return the follow result:
 - SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2Run(  const char* command, 
-                                                System2CommandInfo* outCommandInfo);
+                                                System2CommandInfo* inOutCommandInfo);
+
+/*
+Runs the executable (which can search in PATH env variable) with the given arguments and settings
+    passed with inOutCommandInfo.
+
+On Windows, automatic escaping can be removed by setting the `DisableEscape` in `inOutCommandInfo`
+
+Could return the follow result:
+- SYSTEM2_RESULT_SUCCESS
+- SYSTEM2_RESULT_PIPE_CREATE_FAILED
+- SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED
+- SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED
+- SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED
+*/
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2RunSubprocess(const char* executable,
+                                                        const char* const* args,
+                                                        int argsCount,
+                                                        System2CommandInfo* inOutCommandInfo);
+
 
 /*
 Reads the output (stdout and stderr) from the command. 
@@ -167,109 +197,142 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
 #if defined(__unix__) || defined(__APPLE__)
     #include <sys/wait.h>
 
-    SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2RunPosix( const char* command, 
-                                                        System2CommandInfo* outCommandInfo)
+    SYSTEM2_FUNC_PREFIX 
+    SYSTEM2_RESULT System2RunSubprocessPosix(   const char* executable,
+                                                const char* const* args,
+                                                int argsCount,
+                                                System2CommandInfo* inOutCommandInfo)
     {
-        int result = pipe(outCommandInfo->ParentToChildPipes);
+        int result = pipe(inOutCommandInfo->ParentToChildPipes);
         if(result != 0)
             return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
         
-        result = pipe(outCommandInfo->ChildToParentPipes);
+        result = pipe(inOutCommandInfo->ChildToParentPipes);
         if(result != 0)
             return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
 
-        char* commandCopy = NULL;
-
-        //Process the command and make a copy on the parent process 
-        //because malloc is not safe in forked child processes
-        {
-            const int commandLength = strlen(command);
-            int quoteCount = 0;
-            for(int i = 0; i < commandLength; ++i)
-            {
-                if(command[i] == '"')
-                    quoteCount++;
-            }
-            
-            const int finalCommandSize =    commandLength +     //Content
-                                            quoteCount * 2 +    //Quotes to escape
-                                            2 +                 //Wrapping in double quotes
-                                            1;                  //Null terminator
+        const char** nullTerminatedArgs = malloc(sizeof(char**) * (argsCount + 1));
+        if(nullTerminatedArgs == NULL)
+            return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
         
-            commandCopy = (char*)malloc(finalCommandSize);
-            if(commandCopy == NULL)
-                return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
-
-            commandCopy[0] = '"';
-            int currentIndex = 1;
-            for(int i = 0; i < commandLength; ++i)
-            {
-                if(command[i] == '"')
-                {
-                    commandCopy[currentIndex] = '\\';
-                    commandCopy[currentIndex + 1] = '"';
-                    currentIndex += 2;
-                }
-                else
-                {
-                    commandCopy[currentIndex] = command[i];
-                    currentIndex++;
-                }
-            }
-            commandCopy[currentIndex] = '"';
-            commandCopy[currentIndex + 1] = '\0';
-        }
+        for(int i = 0; i < argsCount; ++i)
+            nullTerminatedArgs[i] = args[i];
         
+        nullTerminatedArgs[argsCount] = NULL;
         pid_t pid = fork();
         
         if(pid < 0)
         {
-            free(commandCopy);
+            free(nullTerminatedArgs);
             return SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED;
         }
         //Child
         else if(pid == 0)
         {
-            if(close(outCommandInfo->ParentToChildPipes[SYSTEM2_FD_WRITE]) != 0)
-                _exit(1);
+            if(close(inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_WRITE]) != 0)
+                _exit(2);
             
-            if(close(outCommandInfo->ChildToParentPipes[SYSTEM2_FD_READ]) != 0)
-                _exit(1);
+            if(close(inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_READ]) != 0)
+                _exit(3);
             
+            if(inOutCommandInfo->RunDirectory != NULL)
+            {
+                if(chdir(inOutCommandInfo->RunDirectory) != 0)
+                    _exit(4);
+            }
             
-            result = dup2(outCommandInfo->ParentToChildPipes[0], STDIN_FILENO);
-            if(result == -1)
-                _exit(1);
+            if(inOutCommandInfo->RedirectInput)
+            {
+                result = dup2(inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ], STDIN_FILENO);
+                if(result == -1)
+                    _exit(5);
+            }
 
-            result = dup2(outCommandInfo->ChildToParentPipes[1], STDOUT_FILENO);
-            if(result == -1)
-                _exit(1);
+            if(inOutCommandInfo->RedirectOutput)
+            {
+                result = dup2(inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE], STDOUT_FILENO);
+                if(result == -1)
+                    _exit(6);
+                
+                result = dup2(inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE], STDERR_FILENO);
+                if(result == -1)
+                    _exit(7);
+            }
             
-            result = dup2(outCommandInfo->ChildToParentPipes[1], STDERR_FILENO);
-            if(result == -1)
-                _exit(1);
-            
-            execl("/bin/sh", "sh", "-c", command, NULL);
+            if(execvp(executable, (char**)nullTerminatedArgs) == -1)
+                _exit(52);
             
             //Should never be reached
             
-            _exit(1);
+            _exit(8);
         }
         //Parent
         else
         {
-            free(commandCopy);
+            free(nullTerminatedArgs);
             
-            if(close(outCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ]) != 0)
+            if(close(inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ]) != 0)
                 return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
             
-            if(close(outCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE]) != 0)
+            if(close(inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE]) != 0)
                 return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
             
-            outCommandInfo->ChildProcessID = pid;
+            inOutCommandInfo->ChildProcessID = pid;
         }
         
         return SYSTEM2_RESULT_SUCCESS;
+    }
+
+    SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2RunPosix( const char* command, 
+                                                        System2CommandInfo* inOutCommandInfo)
+    {
+        #if 0
+            char* commandCopy = NULL;
+
+            //Process the command and make a copy on the parent process 
+            //because malloc is not safe in forked child processes
+            {
+                const int commandLength = strlen(command);
+                int quoteCount = 0;
+                for(int i = 0; i < commandLength; ++i)
+                {
+                    if(command[i] == '"')
+                        quoteCount++;
+                }
+                
+                const int finalCommandSize =    commandLength +     //Content
+                                                quoteCount * 2 +    //Quotes to escape
+                                                2 +                 //Wrapping in double quotes
+                                                1;                  //Null terminator
+            
+                commandCopy = (char*)malloc(finalCommandSize);
+                if(commandCopy == NULL)
+                    return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
+
+                commandCopy[0] = '"';
+                int currentIndex = 1;
+                for(int i = 0; i < commandLength; ++i)
+                {
+                    if(command[i] == '"')
+                    {
+                        commandCopy[currentIndex] = '\\';
+                        commandCopy[currentIndex + 1] = '"';
+                        currentIndex += 2;
+                    }
+                    else
+                    {
+                        commandCopy[currentIndex] = command[i];
+                        currentIndex++;
+                    }
+                }
+                commandCopy[currentIndex] = '"';
+                commandCopy[currentIndex + 1] = '\0';
+            }
+        #endif
+        
+        const char* args[] = { "/bin/sh", "-c", command };
+        
+        return System2RunSubprocessPosix("/bin/sh", args, 3, inOutCommandInfo);
     }
     
     SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2ReadFromOutputPosix(  const System2CommandInfo* info, 
@@ -368,8 +431,8 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         if(close(info->ChildToParentPipes[SYSTEM2_FD_READ]) != 0)
             return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
 
-        //if(close(info->ParentToChildPipes[SYSTEM2_FD_WRITE]) != 0)
-        //    return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+        if(close(info->ParentToChildPipes[SYSTEM2_FD_WRITE]) != 0)
+            return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
         
         if(!WIFEXITED(status))
         {
@@ -383,29 +446,224 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
 #endif
 
 #if defined(_WIN32)
-    SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2RunWindows(   const char* command, 
-                                                            System2CommandInfo* outCommandInfo)
+    #include <strsafe.h>
+    
+    void PrintError(LPCTSTR lpszFunction)
+    { 
+        // Retrieve the system error message for the last-error code
+        LPVOID lpMsgBuf;
+        DWORD dw = GetLastError(); 
+    
+        FormatMessage(
+            FORMAT_MESSAGE_ALLOCATE_BUFFER | 
+            FORMAT_MESSAGE_FROM_SYSTEM |
+            FORMAT_MESSAGE_IGNORE_INSERTS,
+            NULL,
+            dw,
+            MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+            (LPTSTR) &lpMsgBuf,
+            0, NULL );
+    
+        // Display the error message and exit the process
+        printf("Error %d: %s\n", dw, (char*)lpMsgBuf);
+        LocalFree(lpMsgBuf);
+    }
+
+    //https://learn.microsoft.com/en-gb/archive/blogs/twistylittlepassagesallalike/everyone-quotes-command-line-arguments-the-wrong-way
+    SYSTEM2_FUNC_PREFIX int ConstructCommandLineWindows(const char* const* args,
+                                                        size_t argsCount,
+                                                        bool disableEscape,
+                                                        int resultSize,
+                                                        char* outResult)
     {
-        // Create a pipe for the child process's STDOUT. 
-        if(!CreatePipe( &outCommandInfo->ChildToParentPipes[SYSTEM2_FD_READ], 
-                        &outCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE], 
-                        NULL, 
-                        0))
+        size_t currentIndex = 0;
+        
+        if(argsCount == 0)
         {
-            return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
+            if(outResult != NULL)
+            {
+                if(resultSize < 1)
+                    return -1;
+                else
+                {
+                    outResult[0] = '\0';
+                    return 1;
+                }
+            }
+            else
+                return 1;
         }
-
+        
+        for(size_t i = 0; i < argsCount; ++i)
+        {
+            size_t currentArgLength = strlen(args[i]);
+            
+            if( currentArgLength != 0 &&
+                strchr(args[i], ' ') == NULL &&
+                strchr(args[i], '\t') == NULL &&
+                strchr(args[i], '\n') == NULL &&
+                strchr(args[i], '\v') == NULL &&
+                strchr(args[i], '"') == NULL)
+            {
+                if(outResult != NULL)
+                {
+                    strcpy(&outResult[currentIndex], args[i]);
+                    currentIndex += currentArgLength;
+                    
+                    //Bound check
+                    if(currentIndex >= resultSize)
+                        return -1;
+                    
+                    if(i != argsCount - 1)
+                        outResult[currentIndex++] = ' ';
+                    else
+                        outResult[currentIndex++] = '\0';
+                }
+                else
+                {
+                    currentIndex += currentArgLength;
+                    ++currentIndex;
+                }
+            }
+            else
+            {
+                if(outResult != NULL)
+                {
+                    //Bound check
+                    if(currentIndex >= resultSize)
+                        return -1;
+                    
+                    outResult[currentIndex++] = '"';
+                }
+                else
+                    ++currentIndex;
+                
+                for(int j = 0; j < currentArgLength; ++j)
+                {
+                    int numberBackslashes = 0;
+                
+                    if(!disableEscape)
+                    {
+                        for(; j < currentArgLength && args[i][j] == '\\'; ++j)
+                            ++numberBackslashes;
+                    }
+                
+                    if(j == currentArgLength && !disableEscape)
+                    {
+                        // Escape all backslashes, but let the terminating
+                        // double quotation mark we add below be interpreted
+                        // as a metacharacter.
+                        if(outResult != NULL)
+                        {
+                            //Bound check
+                            if(currentIndex + numberBackslashes * 2 >= resultSize)
+                                return -1;
+                            
+                            for(int k = 0; k < numberBackslashes * 2; ++k)
+                                outResult[currentIndex++] = '\\';
+                        }
+                        else
+                        {
+                            for(int k = 0; k < numberBackslashes * 2; ++k)
+                                ++currentIndex;
+                        }
+                    }
+                    else if(args[i][j] == '"' && !disableEscape)
+                    {
+                        // Escape all backslashes and the following
+                        // double quotation mark.
+                        if(outResult != NULL)
+                        {
+                            //Bound check
+                            if(currentIndex + numberBackslashes * 2 + 1 + 1 >= resultSize)
+                                return -1;
+                            
+                            for(int k = 0; k < numberBackslashes * 2 + 1; ++k)
+                                outResult[currentIndex++] = '\\';
+                            
+                            outResult[currentIndex++] = '"';
+                        }
+                        else
+                        {
+                            for(int k = 0; k < numberBackslashes * 2 + 1; ++k)
+                                ++currentIndex;
+                            
+                            ++currentIndex;
+                        }
+                    }
+                    else
+                    {
+                        if(outResult != NULL)
+                        {
+                            //Bound check
+                            if(currentIndex + numberBackslashes + 1 >= resultSize)
+                                return -1;
+                            
+                            // Backslashes aren't special here.
+                            for(int k = 0; k < numberBackslashes; ++k)
+                                outResult[currentIndex++] = '\\';
+                            
+                            outResult[currentIndex++] = args[i][j];
+                        }
+                        else
+                        {
+                            for(int k = 0; k < numberBackslashes; ++k)
+                                ++currentIndex;
+                            
+                            ++currentIndex;
+                        }
+                    }
+                }
+                
+                if(outResult != NULL)
+                {
+                    //Bound check
+                    if(currentIndex + 2 > resultSize)
+                        return -1;
+                    
+                    outResult[currentIndex++] = '"';
+                    if(i != argsCount - 1)
+                        outResult[currentIndex++] = ' ';
+                    else
+                        outResult[currentIndex++] = '\0';
+                }
+                else
+                    currentIndex += 2;
+            }
+        }
+        
+        return (int)currentIndex;
+    }
+    
+    SYSTEM2_FUNC_PREFIX 
+    SYSTEM2_RESULT System2RunSubprocessWindows( const char* executable,
+                                                const char* const* args,
+                                                int argsCount,
+                                                System2CommandInfo* inOutCommandInfo)
+    {
         // Set the write handle to the pipe for STDOUT to be inherited.
-        if(!SetHandleInformation(   outCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE], 
-                                    HANDLE_FLAG_INHERIT, 
-                                    HANDLE_FLAG_INHERIT))
+        if(inOutCommandInfo->RedirectOutput)
         {
-            return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
+            // Create a pipe for the child process's STDOUT. 
+            if(!CreatePipe( &inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_READ], 
+                            &inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE], 
+                            NULL, 
+                            0))
+            {
+                return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
+            }
+            
+            if(!SetHandleInformation(   inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE], 
+                                        HANDLE_FLAG_INHERIT, 
+                                        HANDLE_FLAG_INHERIT))
+            {
+                return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
+            }
         }
-
+        
         // Create a pipe for the child process's STDIN. 
-        if(!CreatePipe( &outCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ], 
-                        &outCommandInfo->ParentToChildPipes[SYSTEM2_FD_WRITE], 
+        if(!CreatePipe( &inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ], 
+                        &inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_WRITE], 
                         NULL, 
                         0))
         {
@@ -413,7 +671,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         }
 
         // Set the read handle to the pipe for STDIN to be inherited. 
-        if(!SetHandleInformation(   outCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ], 
+        if(!SetHandleInformation(   inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ], 
                                     HANDLE_FLAG_INHERIT, 
                                     HANDLE_FLAG_INHERIT))
         {
@@ -431,104 +689,210 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         // This structure specifies the STDIN and STDOUT handles for redirection.
         ZeroMemory(&startupInfo, sizeof(STARTUPINFOW));
         startupInfo.cb = sizeof(STARTUPINFOW); 
-        startupInfo.hStdError = outCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE];
-        startupInfo.hStdOutput = outCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE];
-        startupInfo.hStdInput = outCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ];
         startupInfo.dwFlags |= STARTF_USESTDHANDLES;
         
-        // Create the child process.
-        // cmd /s /v /c "command"
-        const char commandPrefix[] = "cmd /s /v /c ";
-        const int commandLength = (int)strlen(command);
-        const int commandPrefixLength = (int)strlen(commandPrefix);
-        const int finalCommandSize = commandLength + commandPrefixLength + 2 + 1;
+        if(inOutCommandInfo->RedirectInput)
+            startupInfo.hStdInput = inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ];
+        else
+            startupInfo.hStdInput = GetStdHandle(STD_INPUT_HANDLE);;
         
-        char* commandCopy = (char*)malloc(finalCommandSize);
-        if(commandCopy == NULL)
-            return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
-
-        errno_t result = strcpy_s(commandCopy, finalCommandSize, commandPrefix);
-        if(result != 0)
+        if(inOutCommandInfo->RedirectOutput)
         {
-            free(commandCopy);
-            return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
+            startupInfo.hStdError = inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE];
+            startupInfo.hStdOutput = inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE];
+        }
+        else
+        {
+            startupInfo.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+            startupInfo.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
         }
         
-        commandCopy[commandPrefixLength] = '"';
-        result = strcpy_s(  commandCopy + commandPrefixLength + 1, 
-                            finalCommandSize - commandPrefixLength - 1, 
-                            command);
-        
-        if(result != 0)
+        //Join and escape each argument together, then run it
         {
-            free(commandCopy);
-            return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
-        }
-        
-        commandCopy[finalCommandSize - 2] = '"';
-        commandCopy[finalCommandSize - 1] = '\0';
-        
-        int wideStringSize = MultiByteToWideChar(CP_UTF8, 0, commandCopy, -1, NULL, 0);
-        
-        if(wideStringSize <= 0)
-        {
-            free(commandCopy);
-            return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
-        }
-        
-        wchar_t* commandCopyWide = (wchar_t*)malloc(wideStringSize * sizeof(wchar_t));
-        
-        wideStringSize = MultiByteToWideChar(CP_UTF8, 
-                                            0, 
-                                            commandCopy, 
-                                            -1, 
-                                            commandCopyWide, 
-                                            wideStringSize);
-
-        if(wideStringSize <= 0)
-        {
+            //Calculating final command count
+            int finalCommandSize = 0;
+            
+            const char** concatedArgs = malloc(sizeof(char*) * (argsCount + 1));
+            concatedArgs[0] = executable;
+            for(int i = 0; i < argsCount; ++i)
+                concatedArgs[i + 1] = args[i];
+            
+            finalCommandSize = ConstructCommandLineWindows( concatedArgs, 
+                                                            argsCount + 1, 
+                                                            inOutCommandInfo->DisableEscapes,
+                                                            0, 
+                                                            NULL);
+            
+            if(finalCommandSize < 0)
+            {
+                free(concatedArgs);
+                return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
+            }
+            
+            char* commandCopy = (char*)malloc(finalCommandSize);
+            if(commandCopy == NULL)
+            {
+                free(concatedArgs);
+                return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
+            }
+            
+            int wroteSize = ConstructCommandLineWindows(concatedArgs, 
+                                                        argsCount + 1, 
+                                                        inOutCommandInfo->DisableEscapes, 
+                                                        finalCommandSize, 
+                                                        commandCopy);
+            
+            free((void*)concatedArgs);
+            
+            if(wroteSize != finalCommandSize)
+            {
+                printf( "wroteSize and finalCommandSize mismatch, %d, %d\n", 
+                        wroteSize, 
+                        finalCommandSize);
+                
+                return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
+            }
+            
+            //Construct final command
+            wchar_t* commandCopyWide = NULL;
+            
+            //Convert final command to wide chars
+            {
+                int wideCommandSize = MultiByteToWideChar(CP_UTF8, 0, commandCopy, -1, NULL, 0);
+                
+                if(wideCommandSize <= 0)
+                {
+                    free(commandCopy);
+                    return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
+                }
+                
+                commandCopyWide = (wchar_t*)malloc(wideCommandSize * sizeof(wchar_t));
+                if(commandCopyWide == NULL)
+                {
+                    free(commandCopy);
+                    return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
+                }
+                
+                wideCommandSize = MultiByteToWideChar(CP_UTF8, 
+                                                    0, 
+                                                    commandCopy, 
+                                                    -1, 
+                                                    commandCopyWide, 
+                                                    wideCommandSize);
+                
+                if(wideCommandSize <= 0)
+                {
+                    free(commandCopy);
+                    free(commandCopyWide);
+                    return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
+                }
+            }
+            
+            //Convert working directory to wide chars
+            wchar_t* workingDirectoryWide = NULL;
+            if(inOutCommandInfo->RunDirectory != NULL)
+            {
+                int wideWorkingWideDirSize = MultiByteToWideChar(   CP_UTF8, 
+                                                                    0, 
+                                                                    inOutCommandInfo->RunDirectory, 
+                                                                    -1, 
+                                                                    NULL, 
+                                                                    0);
+                
+                if(wideWorkingWideDirSize <= 0)
+                {
+                    free(commandCopy);
+                    free(commandCopyWide);
+                    return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
+                }
+                
+                workingDirectoryWide = (wchar_t*)malloc(wideWorkingWideDirSize * sizeof(wchar_t));
+                if(workingDirectoryWide == NULL)
+                {
+                    free(commandCopy);
+                    free(commandCopyWide);
+                    return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
+                }
+                
+                wideWorkingWideDirSize = MultiByteToWideChar(   CP_UTF8, 
+                                                                0, 
+                                                                inOutCommandInfo->RunDirectory, 
+                                                                -1, 
+                                                                workingDirectoryWide, 
+                                                                wideWorkingWideDirSize);
+                
+                if(wideWorkingWideDirSize <= 0)
+                {
+                    free(commandCopy);
+                    free(commandCopyWide);
+                    free(workingDirectoryWide);
+                    return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
+                }
+            }
+            
+            success = CreateProcessW(   NULL, 
+                                        commandCopyWide,                // command line 
+                                        //L"PrintArgs.exe a\\\\b d\"e f\"g h",
+                                        NULL,                           // process securitye attributes 
+                                        NULL,                           // primary thread security attributes 
+                                        TRUE,                           // handles are inherited 
+                                        CREATE_UNICODE_ENVIRONMENT,     // creation flags 
+                                        NULL,                           // use parent's environment 
+                                        workingDirectoryWide,           // use parent's current directory 
+                                        &startupInfo,                   // STARTUPINFO pointer 
+                                        &processInfo);                  // receives PROCESS_INFORMATION 
+            
             free(commandCopy);
             free(commandCopyWide);
-            return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
+            
+            if(workingDirectoryWide != NULL)
+                free(commandCopyWide);
         }
-
-        success = CreateProcessW(   NULL, 
-                                    commandCopyWide,    // command line 
-                                    NULL,               // process security attributes 
-                                    NULL,               // primary thread security attributes 
-                                    TRUE,               // handles are inherited 
-                                    CREATE_NO_WINDOW,   // creation flags 
-                                    NULL,               // use parent's environment 
-                                    NULL,               // use parent's current directory 
-                                    &startupInfo,       // STARTUPINFO pointer 
-                                    &processInfo);      // receives PROCESS_INFORMATION 
-        
-        
-        free(commandCopy);
-        free(commandCopyWide);
         
         // If an error occurs, exit the application. 
         if(!success)
+        {
+            PrintError("CreateProcessW");
             return SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED;
+        }
         else 
         {
             // Close handles to the child process and its primary thread.
             // Some applications might keep these handles to monitor the status
             // of the child process, for example. 
-            outCommandInfo->ChildProcessHandle = processInfo.hProcess;
-            if(!CloseHandle(processInfo.hThread))
-                return SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED;
-
+            inOutCommandInfo->ChildProcessHandle = processInfo.hProcess;
+            
             // Close handles to the stdin and stdout pipes no longer needed by the child process.
             // If they are not explicitly closed, there is no way to recognize that the child process has ended.
-            if(!CloseHandle(outCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE]))
-                return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+            if(inOutCommandInfo->RedirectInput)
+            {
+                if(!CloseHandle(processInfo.hThread))
+                    return SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED;
+            }
+
+            if(inOutCommandInfo->RedirectOutput)
+            {
+                if(!CloseHandle(inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE]))
+                    return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+            }
             
-            if(!CloseHandle(outCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ]))
+            if(!CloseHandle(inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ]))
                 return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
 
             return SYSTEM2_RESULT_SUCCESS;
         }
+    }
+    
+    SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2RunWindows(   const char* command, 
+                                                            System2CommandInfo* outCommandInfo)
+    {
+        const char* args[] = {"/s", "/v", "/c", command};
+        outCommandInfo->DisableEscapes = true;
+        outCommandInfo->RunDirectory = NULL;
+        return System2RunSubprocessWindows( "cmd", 
+                                            args, 
+                                            sizeof(args) / sizeof(char*), 
+                                            outCommandInfo);
     }
     
     //TODO: Use peeknamedpipe to get number of bytes available before reading it 
@@ -608,12 +972,18 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         DWORD exitCode;
         if(!GetExitCodeProcess(info->ChildProcessHandle, &exitCode))
             return SYSTEM2_RESULT_COMMAND_WAIT_ASYNC_FAILED;
-
-        if(!CloseHandle(info->ChildToParentPipes[SYSTEM2_FD_READ]))
-            return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
         
-        if(!CloseHandle(info->ParentToChildPipes[SYSTEM2_FD_WRITE]))
-            return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+        if(info->RedirectOutput)
+        {
+            if(!CloseHandle(info->ChildToParentPipes[SYSTEM2_FD_READ]))
+                return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+        }
+        
+        if(info->RedirectInput)
+        {
+            if(!CloseHandle(info->ParentToChildPipes[SYSTEM2_FD_WRITE]))
+                return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+        }
 
         CloseHandle(info->ChildProcessHandle);
         *outReturnCode = exitCode;
@@ -627,11 +997,17 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         if(WaitForSingleObject(info->ChildProcessHandle, INFINITE) != 0)
             return SYSTEM2_RESULT_COMMAND_WAIT_SYNC_FAILED;
         
-        if(!CloseHandle(info->ChildToParentPipes[SYSTEM2_FD_READ]))
-            return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+        if(info->RedirectOutput)
+        {
+            if(!CloseHandle(info->ChildToParentPipes[SYSTEM2_FD_READ]))
+                return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+        }
         
-        if(!CloseHandle(info->ParentToChildPipes[SYSTEM2_FD_WRITE]))
-            return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+        if(info->RedirectInput)
+        {
+            if(!CloseHandle(info->ParentToChildPipes[SYSTEM2_FD_WRITE]))
+                return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+        }
         
         DWORD exitCode;
         if(!GetExitCodeProcess(info->ChildProcessHandle, &exitCode))
@@ -647,12 +1023,27 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
     }
 #endif
 
-SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2Run(const char* command, System2CommandInfo* outCommandInfo)
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2Run(  const char* command, 
+                                                System2CommandInfo* inOutCommandInfo)
 {
     #if defined(__unix__) || defined(__APPLE__)
-        return System2RunPosix(command, outCommandInfo);
+        return System2RunPosix(command, inOutCommandInfo);
     #elif defined(_WIN32)
-        return System2RunWindows(command, outCommandInfo);
+        return System2RunWindows(command, inOutCommandInfo);
+    #else
+        return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM; 
+    #endif
+}
+
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2RunSubprocess(const char* executable,
+                                                        const char* const* args,
+                                                        int argsCount,
+                                                        System2CommandInfo* inOutCommandInfo)
+{
+    #if defined(__unix__) || defined(__APPLE__)
+        return System2RunSubprocessPosix(executable, args, argsCount, inOutCommandInfo);
+    #elif defined(_WIN32)
+        return System2RunSubprocessWindows(executable, args, argsCount, inOutCommandInfo);
     #else
         return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM; 
     #endif
