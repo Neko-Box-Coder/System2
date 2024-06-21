@@ -23,7 +23,6 @@ If you do not want to use header only due to system header leakage
 #else
     #if defined(__unix__) || defined(__APPLE__)
         #include <unistd.h>
-        #include <errno.h>
         #include <stdio.h>
     #endif
 
@@ -259,6 +258,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                     _exit(7);
             }
             
+            //TODO: Send the errno back to the host and display the error
             if(execvp(executable, (char**)nullTerminatedArgs) == -1)
                 _exit(52);
             
@@ -286,50 +286,6 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
     SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2RunPosix( const char* command, 
                                                         System2CommandInfo* inOutCommandInfo)
     {
-        #if 0
-            char* commandCopy = NULL;
-
-            //Process the command and make a copy on the parent process 
-            //because malloc is not safe in forked child processes
-            {
-                const int commandLength = strlen(command);
-                int quoteCount = 0;
-                for(int i = 0; i < commandLength; ++i)
-                {
-                    if(command[i] == '"')
-                        quoteCount++;
-                }
-                
-                const int finalCommandSize =    commandLength +     //Content
-                                                quoteCount * 2 +    //Quotes to escape
-                                                2 +                 //Wrapping in double quotes
-                                                1;                  //Null terminator
-            
-                commandCopy = (char*)malloc(finalCommandSize);
-                if(commandCopy == NULL)
-                    return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
-
-                commandCopy[0] = '"';
-                int currentIndex = 1;
-                for(int i = 0; i < commandLength; ++i)
-                {
-                    if(command[i] == '"')
-                    {
-                        commandCopy[currentIndex] = '\\';
-                        commandCopy[currentIndex + 1] = '"';
-                        currentIndex += 2;
-                    }
-                    else
-                    {
-                        commandCopy[currentIndex] = command[i];
-                        currentIndex++;
-                    }
-                }
-                commandCopy[currentIndex] = '"';
-                commandCopy[currentIndex + 1] = '\0';
-            }
-        #endif
-        
         const char* args[] = { "/bin/sh", "-c", command };
         
         return System2RunSubprocessPosix("/bin/sh", args, 3, inOutCommandInfo);
@@ -454,15 +410,15 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         LPVOID lpMsgBuf;
         DWORD dw = GetLastError(); 
     
-        FormatMessage(
-            FORMAT_MESSAGE_ALLOCATE_BUFFER | 
-            FORMAT_MESSAGE_FROM_SYSTEM |
-            FORMAT_MESSAGE_IGNORE_INSERTS,
-            NULL,
-            dw,
-            MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-            (LPTSTR) &lpMsgBuf,
-            0, NULL );
+        FormatMessage(  FORMAT_MESSAGE_ALLOCATE_BUFFER | 
+                        FORMAT_MESSAGE_FROM_SYSTEM |
+                        FORMAT_MESSAGE_IGNORE_INSERTS,
+                        NULL,
+                        dw,
+                        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+                        (LPTSTR) &lpMsgBuf,
+                        0, 
+                        NULL );
     
         // Display the error message and exit the process
         printf("Error %d: %s\n", dw, (char*)lpMsgBuf);
