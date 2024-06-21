@@ -1,6 +1,6 @@
 ### System2
 
-`System2` is a cross-platform c library that allows you to call shell commands, just like `system` but with the ability to
+`System2` is a cross-platform c library that allows you to call shell commands and other executables (subprocess), just like `system` but with the ability to
 provide input to stdin and capture the output from stdout and stderr.
 
 ```text
@@ -14,11 +14,28 @@ provide input to stdin and capture the output from stdout and stderr.
 ```
 > From: https://patorjk.com with Graceful font
 
+> [!NOTE]
+> ### What's new?
+>
+> Added new function: `System2RunSubprocess()` which allows you to launch other executables
+>
+> Added option to choose to use stdin/stdout or redirect them back to the caller
+>
+> Added option to set the directory of the command being run
+
+> [!IMPORTANT]
+> Breaking change from 21st June 2024.
+> 
+> Inputs and Outputs of the command are now using **stdin and stdout by default** instead of being redirected by default.
+> 
+> To retain previous behavior, see the updated [Quick Start With Minimum running example (Without checks)](#quick-start-with-minimum-running-example-without-checks)
+
 #### Features
 
 - Written in C99, and is ready to be used in C++ as well
 - Cross-platform (POSIX and Windows)
 - Command interaction with stdin, stdout, and stderr
+- Invoking shell commands and launching executables
 - Blocking (sync) and non-blocking (async) version
 - No dependencies (only standard C and system libraries).
     No longer need a heavy framework like boost or poco just to capture output from running a command.
@@ -78,6 +95,19 @@ int main(int argc, char** argv)
 
 #### API Documentation
 ```cpp
+typedef struct
+{
+    bool RedirectInput;         //Redirect input with pipe?
+    bool RedirectOutput;        //Redirect output with pipe?
+    const char* RunDirectory;   //The directory to run the command in?
+    
+    #if defined(_WIN32)
+        bool DisableEscapes;    //Disable automatic escaping?
+    #endif
+    
+    //Internal fields...
+} System2CommandInfo;
+
 /*
 Runs the command in system shell just like the `system()` funcion with the given settings 
     passed with `inOutCommandInfo`.
