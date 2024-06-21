@@ -46,7 +46,7 @@ typedef struct
 {
     bool RedirectInput;         //Redirect input with pipe?
     bool RedirectOutput;        //Redirect output with pipe?
-    char* RunDirectory;         //The directory to run the command in?
+    const char* RunDirectory;   //The directory to run the command in?
     
     #if defined(__unix__) || defined(__APPLE__)
         int ParentToChildPipes[2];
@@ -210,7 +210,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         if(result != 0)
             return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
 
-        const char** nullTerminatedArgs = malloc(sizeof(char**) * (argsCount + 1));
+        const char** nullTerminatedArgs = (const char**)malloc(sizeof(char**) * (argsCount + 1));
         if(nullTerminatedArgs == NULL)
             return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
         
