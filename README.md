@@ -28,10 +28,7 @@ provide input to stdin and capture the output from stdout and stderr.
 
 \* See Remarks for UTF-8 support
 
-#### API Documentation
-Just read the header file `System2.h`. Everything is documented there.
-
-#### Minimum running example (Without checks)
+#### Quick Start With Minimum running example (Without checks)
 
 ```c
 #include "System2.h"
@@ -40,14 +37,16 @@ Just read the header file `System2.h`. Everything is documented there.
 int main(int argc, char** argv) 
 {
     System2CommandInfo commandInfo;
+    memset(&commandInfo, 0, sizeof(System2CommandInfo));
+    commandInfo.RedirectInput = true;
+    commandInfo.RedirectOutput = true;
 
     #if defined(__unix__) || defined(__APPLE__)
         System2Run("read testVar && echo testVar is \\\"$testVar\\\"", &commandInfo);
     #endif
     
     #if defined(_WIN32)
-        System2Run( "set /p testVar= && echo testVar is \"!testVar!\"", 
-                    &commandInfo);
+        System2Run("set /p testVar= && echo testVar is \"!testVar!\"", &commandInfo);
     #endif
     
     char input[] = "test content\n";
@@ -64,11 +63,12 @@ int main(int argc, char** argv)
     System2ReadFromOutput(&commandInfo, outputBuffer, 1023, &bytesRead);
     outputBuffer[bytesRead] = 0;
     
-    int returnCode;
+    int returnCode = -1;
     System2GetCommandReturnValueSync(&commandInfo, &returnCode);
     
-    printf("%s: %d\n", "Command has executed with return value", returnCode);
     printf("%s\n", outputBuffer);
+    printf("%s: %d\n", "Command has executed with return value", returnCode);
+    
     return 0;
     
     //Output: Command has executed with return value: 0
@@ -76,11 +76,109 @@ int main(int argc, char** argv)
 }
 ```
 
+#### API Documentation
+```cpp
+/*
+Runs the command in system shell just like the `system()` funcion with the given settings 
+    passed with `inOutCommandInfo`.
+
+This uses 
+`sh -c command` for POSIX and
+`cmd /s /v /c command` for Windows
+
+Could return the follow result:
+- SYSTEM2_RESULT_SUCCESS
+- SYSTEM2_RESULT_PIPE_CREATE_FAILED
+- SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED
+- SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED
+- SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED
+*/
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2Run(  const char* command, 
+                                                System2CommandInfo* inOutCommandInfo);
+
+/*
+Runs the executable (which can search in PATH env variable) with the given arguments and settings
+    passed with inOutCommandInfo.
+
+On Windows, automatic escaping can be removed by setting the `DisableEscape` in `inOutCommandInfo`
+
+Could return the follow result:
+- SYSTEM2_RESULT_SUCCESS
+- SYSTEM2_RESULT_PIPE_CREATE_FAILED
+- SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED
+- SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED
+- SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED
+*/
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2RunSubprocess(const char* executable,
+                                                        const char* const* args,
+                                                        int argsCount,
+                                                        System2CommandInfo* inOutCommandInfo);
+
+
+/*
+Reads the output (stdout and stderr) from the command. 
+Output string is **NOT** null terminated.
+
+If SYSTEM2_RESULT_READ_NOT_FINISHED is returned, 
+this function can be called again until SYSTEM2_RESULT_SUCCESS to retrieve the rest of the output.
+
+outBytesRead determines how many bytes have been read for **this** function call
+
+Could return the follow result:
+- SYSTEM2_RESULT_SUCCESS
+- SYSTEM2_RESULT_READ_NOT_FINISHED
+- SYSTEM2_RESULT_READ_FAILED
+*/
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2ReadFromOutput(   const System2CommandInfo* info, 
+                                                            char* outputBuffer, 
+                                                            uint32_t outputBufferSize,
+                                                            uint32_t* outBytesRead);
+
+/*
+Write the input (stdin) to the command. 
+
+Could return the follow result:
+- SYSTEM2_RESULT_SUCCESS
+- SYSTEM2_RESULT_WRITE_FAILED
+*/
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2WriteToInput( const System2CommandInfo* info, 
+                                                        const char* inputBuffer, 
+                                                        const uint32_t inputBufferSize);
+
+/*
+Gets the return code if the command has finished.
+Otherwise, this will return SYSTEM2_RESULT_COMMAND_NOT_FINISHED immediately.
+
+Could return the follow result:
+- SYSTEM2_RESULT_SUCCESS
+- SYSTEM2_RESULT_COMMAND_NOT_FINISHED
+- SYSTEM2_RESULT_COMMAND_TERMINATED
+- SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED
+- SYSTEM2_RESULT_COMMAND_WAIT_ASYNC_FAILED
+*/
+SYSTEM2_FUNC_PREFIX 
+SYSTEM2_RESULT System2GetCommandReturnValueAsync(   const System2CommandInfo* info, 
+                                                    int* outReturnCode);
+
+/*
+Wait for the command to finish and gets the return code
+
+Could return the follow result:
+- SYSTEM2_RESULT_SUCCESS
+- SYSTEM2_RESULT_COMMAND_TERMINATED
+- SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED
+- SYSTEM2_RESULT_COMMAND_WAIT_SYNC_FAILED
+*/
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System2CommandInfo* info, 
+                                                                    int* outReturnCode);
+```
+
+
 #### Using System2 in your project
 
 This library has header only version, just include "System2.h" and you are good to go.
 
-However, this will leak system library headers to your codebase as it uses it.
+However, this will leak system library headers to your codebase.
 
 In that case, you can use the source version of the library.
 
