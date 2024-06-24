@@ -27,7 +27,10 @@ If you do not want to use header only due to system header leakage
     #endif
 
     #if defined(_WIN32)
-        #define _CRT_SECURE_NO_WARNINGS
+        #ifndef _CRT_SECURE_NO_WARNINGS
+            #define _CRT_SECURE_NO_WARNINGS
+        #endif
+        
         #include <windows.h>
     #endif
 #endif
@@ -404,7 +407,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
 #if defined(_WIN32)
     #include <strsafe.h>
     
-    void PrintError(LPCTSTR lpszFunction)
+    SYSTEM2_FUNC_PREFIX void PrintError(LPCTSTR lpszFunction)
     { 
         // Retrieve the system error message for the last-error code
         LPVOID lpMsgBuf;
@@ -668,7 +671,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
             //Calculating final command count
             int finalCommandSize = 0;
             
-            const char** concatedArgs = malloc(sizeof(char*) * (argsCount + 1));
+            const char** concatedArgs = (const char**)malloc(sizeof(char*) * (argsCount + 1));
             concatedArgs[0] = executable;
             for(int i = 0; i < argsCount; ++i)
                 concatedArgs[i + 1] = args[i];
