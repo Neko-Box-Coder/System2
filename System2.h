@@ -13,6 +13,7 @@ If you do not want to use header only due to system header leakage
 */
 
 #if SYSTEM2_DECLARATION_ONLY
+    //We need system types defined if we don't want to include system headers
     #if defined(__unix__) || defined(__APPLE__)
         typedef int pid_t;
     #endif
@@ -21,6 +22,7 @@ If you do not want to use header only due to system header leakage
         typedef void* HANDLE;
     #endif
 #else
+    //Includes all the required system headers
     #if defined(__unix__) || defined(__APPLE__)
         #include <unistd.h>
         #include <stdio.h>
@@ -36,6 +38,7 @@ If you do not want to use header only due to system header leakage
 #endif
 
 #if SYSTEM2_DECLARATION_ONLY || SYSTEM2_IMPLEMENTATION_ONLY
+    //We don't need any inline prefix if we are having declaration and implementation separated
     #define SYSTEM2_FUNC_PREFIX
 #else
     #define SYSTEM2_FUNC_PREFIX static inline
@@ -805,7 +808,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
             free(commandCopyWide);
             
             if(workingDirectoryWide != NULL)
-                free(commandCopyWide);
+                free(workingDirectoryWide);
         }
         
         // If an error occurs, exit the application. 
@@ -847,7 +850,6 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
     {
         const char* args[] = {"/s", "/v", "/c", command};
         outCommandInfo->DisableEscapes = true;
-        outCommandInfo->RunDirectory = NULL;
         return System2RunSubprocessWindows( "cmd", 
                                             args, 
                                             sizeof(args) / sizeof(char*), 
