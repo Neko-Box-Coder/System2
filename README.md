@@ -15,20 +15,8 @@ provide input to stdin and capture the output from stdout and stderr.
 > From: https://patorjk.com with Graceful font
 
 > [!NOTE]
-> ### What's new?
->
-> Added new function: `System2RunSubprocess()` which allows you to launch other executables
->
-> Added option to choose to use stdin/stdout or redirect them back to the caller
->
-> Added option to set the directory of the command being run
-
-> [!IMPORTANT]
-> Breaking change from 21st June 2024.
 > 
-> Inputs and Outputs of the command are now using **stdin and stdout by default** instead of being redirected by default.
-> 
-> To retain previous behavior, see the updated [Quick Start With Minimum running example (Without checks)](#quick-start-with-minimum-running-example-without-checks)
+> For a C++ wrapper, check out [System2.cpp](https://github.com/Neko-Box-Coder/System2.cpp)
 
 #### Features
 
