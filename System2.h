@@ -302,7 +302,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                                                                     uint32_t outputBufferSize,
                                                                     uint32_t* outBytesRead)
     {
-        uint32_t readResult;
+        int32_t readResult;
         *outBytesRead = 0;
         
         while (true)
@@ -335,9 +335,9 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         
         while(true)
         {
-            uint32_t writeResult = write(   info->ParentToChildPipes[SYSTEM2_FD_WRITE], 
-                                            inputBuffer, 
-                                            inputBufferSize);
+            int32_t writeResult = write(info->ParentToChildPipes[SYSTEM2_FD_WRITE], 
+                                        inputBuffer, 
+                                        inputBufferSize);
 
             if(writeResult == -1)
                 return SYSTEM2_RESULT_WRITE_FAILED;
