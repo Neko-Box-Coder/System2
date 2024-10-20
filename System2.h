@@ -412,6 +412,8 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
     
     SYSTEM2_FUNC_PREFIX void PrintError(LPCTSTR lpszFunction)
     { 
+        (void)lpszFunction;
+        
         // Retrieve the system error message for the last-error code
         LPVOID lpMsgBuf;
         DWORD dw = GetLastError(); 
@@ -469,7 +471,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
             {
                 if(outResult != NULL)
                 {
-                    strcpy(&outResult[currentIndex], args[i]);
+                    memcpy(&outResult[currentIndex], args[i], currentArgLength);
                     currentIndex += currentArgLength;
                     
                     //Bound check
@@ -735,12 +737,12 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                     return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
                 }
                 
-                wideCommandSize = MultiByteToWideChar(CP_UTF8, 
-                                                    0, 
-                                                    commandCopy, 
-                                                    -1, 
-                                                    commandCopyWide, 
-                                                    wideCommandSize);
+                wideCommandSize = MultiByteToWideChar(  CP_UTF8, 
+                                                        0, 
+                                                        commandCopy, 
+                                                        -1, 
+                                                        commandCopyWide, 
+                                                        wideCommandSize);
                 
                 if(wideCommandSize <= 0)
                 {
