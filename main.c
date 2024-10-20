@@ -15,6 +15,9 @@ if(result != SYSTEM2_RESULT_SUCCESS) \
 
 int main(int argc, char** argv) 
 {
+    (void)argc;
+    (void)argv;
+    
     {
         System2CommandInfo commandInfo;
         memset(&commandInfo, 0, sizeof(System2CommandInfo));

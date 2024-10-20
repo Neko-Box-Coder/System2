@@ -19,18 +19,11 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set_target_properties(System2 PROPERTIES C_STANDARD 99)
     
     if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-        set(STANDARD_COMPILE_FLAGS "/utf-8;/W1")
+        set(STANDARD_COMPILE_FLAGS "/utf-8;/W4")
     else()
         set(STANDARD_COMPILE_FLAGS  "-Wall"
-                                    "-Wno-return-local-addr"
-                                    "-Wno-sign-compare"
-                                    "-Wno-unused-variable"
-                                    "-Wno-unused-parameter"
-                                    "-Wno-switch"
-                                    "-Wno-gnu-zero-variadic-macro-arguments"
                                     "-Wextra"
-                                    "-pedantic"
-                                    "-Werror")
+                                    "-pedantic")
     endif()
     
     target_compile_options(System2 INTERFACE ${STANDARD_COMPILE_FLAGS})
