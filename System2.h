@@ -48,12 +48,20 @@ If you do not want to use header only due to system header leakage
 #include <string.h>
 #include <stdbool.h>
 
+#if !defined(SYSTEM2_AVOID_FORK)&&!defined(SYSTEM2_STACK_SIZE) 
+        #define SYSTEM2_STACK_SIZE 8*1024*1024
+#endif
+
 typedef struct
 {
     bool RedirectInput;         //Redirect input with pipe?
     bool RedirectOutput;        //Redirect output with pipe?
     const char* RunDirectory;   //The directory to run the command in?
     
+    #ifdef SYSTEM2_AVOID_FORK 
+        void* StackPointer;
+    #endif
+
     #if defined(__unix__) || defined(__APPLE__)
         int ParentToChildPipes[2];
         int ChildToParentPipes[2];
@@ -201,6 +209,69 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
 
 #if defined(__unix__) || defined(__APPLE__)
     #include <sys/wait.h>
+    
+    // SYSTEM2_FUNC_PREFIX int System2EnsureStack(System2CommandInfo* inOutCommandInfo) {
+    //             //allocate stack
+    //     if (inOutCommandInfo->StackPointer==NULL){
+    //         void* stack = mmap(NULL,SYSTEM2_STACK_SIZE ,PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    //         if (stack==MAP_FAILED) 
+    //             return 1;
+
+    //         *inOutCommandInfo->StackPointer=stack;
+    //     }
+    //     return 0;
+    // }
+
+    struct System2ChildArgs{
+        char** nullTerminatedArgs;
+        System2CommandInfo* inOutCommandInfo;
+        const char* executable;
+    };
+
+    SYSTEM2_FUNC_PREFIX void System2PosixChildLogic(void* void_args){
+        int result;
+        struct System2ChildArgs args = *(struct System2ChildArgs*)void_args;
+
+        System2CommandInfo* inOutCommandInfo = args.inOutCommandInfo;
+        if(close(inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_WRITE]) != 0)
+            _exit(2);
+        
+        if(close(inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_READ]) != 0)
+            
+            _exit(3);
+        
+        if(inOutCommandInfo->RunDirectory != NULL)
+        {
+            if(chdir(inOutCommandInfo->RunDirectory) != 0)
+                _exit(4);
+        }
+        
+        if(inOutCommandInfo->RedirectInput)
+        {
+            result = dup2(inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ], STDIN_FILENO);
+            if(result == -1)
+                _exit(5);
+        }
+
+        if(inOutCommandInfo->RedirectOutput)
+        {
+            result = dup2(inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE], STDOUT_FILENO);
+            if(result == -1)
+                _exit(6);
+            
+            result = dup2(inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE], STDERR_FILENO);
+            if(result == -1)
+                _exit(7);
+        }
+        
+        //TODO: Send the errno back to the host and display the error
+        if(execvp(args.executable, args.nullTerminatedArgs) == -1)
+            _exit(52);
+        
+        //Should never be reached
+        
+        _exit(8);
+    }
 
     SYSTEM2_FUNC_PREFIX 
     SYSTEM2_RESULT System2RunSubprocessPosix(   const char* executable,
@@ -224,53 +295,21 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
             nullTerminatedArgs[i] = args[i];
         
         nullTerminatedArgs[argsCount] = NULL;
-        pid_t pid = vfork();
+
+        pid_t pid = fork(); //used to be fork which is async
+
         
         if(pid < 0)
         {
             free(nullTerminatedArgs);
+            // SYSTEM2_FREE_STACK
             return SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED;
         }
         //Child
         else if(pid == 0)
-        {
-            if(close(inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_WRITE]) != 0)
-                _exit(2);
-            
-            if(close(inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_READ]) != 0)
-                _exit(3);
-            
-            if(inOutCommandInfo->RunDirectory != NULL)
-            {
-                if(chdir(inOutCommandInfo->RunDirectory) != 0)
-                    _exit(4);
-            }
-            
-            if(inOutCommandInfo->RedirectInput)
-            {
-                result = dup2(inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ], STDIN_FILENO);
-                if(result == -1)
-                    _exit(5);
-            }
-
-            if(inOutCommandInfo->RedirectOutput)
-            {
-                result = dup2(inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE], STDOUT_FILENO);
-                if(result == -1)
-                    _exit(6);
-                
-                result = dup2(inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE], STDERR_FILENO);
-                if(result == -1)
-                    _exit(7);
-            }
-            
-            //TODO: Send the errno back to the host and display the error
-            if(execvp(executable, (char**)nullTerminatedArgs) == -1)
-                _exit(52);
-            
-            //Should never be reached
-            
-            _exit(8);
+        {   
+            struct System2ChildArgs input ={(char**)nullTerminatedArgs,inOutCommandInfo,executable} ;
+            System2PosixChildLogic((void*)&input);
         }
         //Parent
         else
