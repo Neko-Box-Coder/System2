@@ -201,6 +201,12 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
 
 #if defined(__unix__) || defined(__APPLE__)
     #include <sys/wait.h>
+    
+    #define SYSTEM2_POSIX_SPAWN
+    #ifdef SYSTEM2_POSIX_SPAWN
+    #include <spawn.h>
+    extern char **environ;
+    #endif
 
     SYSTEM2_FUNC_PREFIX 
     SYSTEM2_RESULT System2RunSubprocessPosix(   const char* executable,
@@ -224,7 +230,8 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
             nullTerminatedArgs[i] = args[i];
         
         nullTerminatedArgs[argsCount] = NULL;
-        pid_t pid = fork();
+        #ifndef SYSTEM2_POSIX_SPAWN
+                pid_t pid = fork();
         
         if(pid < 0)
         {
@@ -273,7 +280,73 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
             _exit(8);
         }
         //Parent
-        else
+        else //used later in if else
+        #else 
+        
+        posix_spawn_file_actions_t file_actions;
+        posix_spawn_file_actions_init(&file_actions);
+
+        // Close unused pipe ends in the child process
+        if (posix_spawn_file_actions_addclose(&file_actions, inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_WRITE]) != 0) {
+            posix_spawn_file_actions_destroy(&file_actions);
+            return 2; // Failed to close write-end of ParentToChildPipe
+        }
+
+        if (posix_spawn_file_actions_addclose(&file_actions, inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_READ]) != 0) {
+            posix_spawn_file_actions_destroy(&file_actions);
+            return 3; // Failed to close read-end of ChildToParentPipe
+        }
+
+        // Redirect input
+        if (inOutCommandInfo->RedirectInput) {
+            if (posix_spawn_file_actions_adddup2(&file_actions,
+                                                 inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ],
+                                                 STDIN_FILENO) != 0) {
+                posix_spawn_file_actions_destroy(&file_actions);
+                return 5; // Failed to redirect stdin
+            }
+        }
+
+        // Redirect output
+        if (inOutCommandInfo->RedirectOutput) {
+            if (posix_spawn_file_actions_adddup2(&file_actions,
+                                                 inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE],
+                                                 STDOUT_FILENO) != 0) {
+                posix_spawn_file_actions_destroy(&file_actions);
+                return 6; // Failed to redirect stdout
+            }
+
+            if (posix_spawn_file_actions_adddup2(&file_actions,
+                                                 inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE],
+                                                 STDERR_FILENO) != 0) {
+                posix_spawn_file_actions_destroy(&file_actions);
+                return 7; // Failed to redirect stderr
+            }
+        }
+
+        // Close the duplicated file descriptors
+        posix_spawn_file_actions_addclose(&file_actions, inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ]);
+        posix_spawn_file_actions_addclose(&file_actions, inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE]);
+
+        // Handle changing the directory
+        if (inOutCommandInfo->RunDirectory) {
+            perror("feature not available in posix spawn mode");
+            exit(1);
+        }
+
+        pid_t pid;
+        int spawn_status = posix_spawn(&pid, executable, &file_actions, NULL, (char **)nullTerminatedArgs, environ);
+        posix_spawn_file_actions_destroy(&file_actions);
+
+
+
+        if (spawn_status != 0) {
+            fprintf(stderr, "posix_spawn failed: %s\n", strerror(spawn_status));
+            return 52; // Failed to spawn process
+        }
+        
+        #endif //SYSTEM2_POSIX_SPAWN
+        //Parent code else statment
         {
             free(nullTerminatedArgs);
             
@@ -285,7 +358,6 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
             
             inOutCommandInfo->ChildProcessID = pid;
         }
-        
         return SYSTEM2_RESULT_SUCCESS;
     }
 
