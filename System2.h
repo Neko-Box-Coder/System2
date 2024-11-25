@@ -224,7 +224,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
             nullTerminatedArgs[i] = args[i];
         
         nullTerminatedArgs[argsCount] = NULL;
-        pid_t pid = fork();
+        pid_t pid = vfork();
         
         if(pid < 0)
         {
