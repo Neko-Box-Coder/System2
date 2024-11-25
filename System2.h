@@ -202,7 +202,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
 #if defined(__unix__) || defined(__APPLE__)
     #include <sys/wait.h>
     
-    #define SYSTEM2_POSIX_SPAWN
+    // #define SYSTEM2_POSIX_SPAWN //this removes the rundir feature the intended use is on no overcommit systems with a new glibc.
     #ifdef SYSTEM2_POSIX_SPAWN
     #include <spawn.h>
     extern char **environ;
