@@ -202,10 +202,11 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
 #if defined(__unix__) || defined(__APPLE__)
     #include <sys/wait.h>
     
-    // #define SYSTEM2_POSIX_SPAWN //this removes the rundir feature the intended use is on no overcommit systems with a new glibc.
-    #ifdef SYSTEM2_POSIX_SPAWN
-    #include <spawn.h>
-    extern char **environ;
+    //this removes the rundir feature the intended use is on no overcommit systems with a new glibc.
+    //#define SYSTEM2_POSIX_SPAWN 1
+    #if defined(SYSTEM2_POSIX_SPAWN) && SYSTEM2_POSIX_SPAWN != 0
+        #include <spawn.h>
+        extern char **environ;
     #endif
 
     SYSTEM2_FUNC_PREFIX 
@@ -230,123 +231,124 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
             nullTerminatedArgs[i] = args[i];
         
         nullTerminatedArgs[argsCount] = NULL;
-        #ifndef SYSTEM2_POSIX_SPAWN
-                pid_t pid = fork();
+        #if !defined(SYSTEM2_POSIX_SPAWN) || SYSTEM2_POSIX_SPAWN == 0
+            pid_t pid = fork();
         
-        if(pid < 0)
-        {
-            free(nullTerminatedArgs);
-            return SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED;
-        }
-        //Child
-        else if(pid == 0)
-        {
-            if(close(inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_WRITE]) != 0)
-                _exit(2);
-            
-            if(close(inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_READ]) != 0)
-                _exit(3);
-            
-            if(inOutCommandInfo->RunDirectory != NULL)
+            if(pid < 0)
             {
-                if(chdir(inOutCommandInfo->RunDirectory) != 0)
-                    _exit(4);
+                free(nullTerminatedArgs);
+                return SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED;
             }
-            
-            if(inOutCommandInfo->RedirectInput)
+            //Child
+            else if(pid == 0)
             {
-                result = dup2(inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ], STDIN_FILENO);
-                if(result == -1)
-                    _exit(5);
-            }
-
-            if(inOutCommandInfo->RedirectOutput)
-            {
-                result = dup2(inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE], STDOUT_FILENO);
-                if(result == -1)
-                    _exit(6);
+                if(close(inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_WRITE]) != 0)
+                    _exit(2);
                 
-                result = dup2(inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE], STDERR_FILENO);
-                if(result == -1)
-                    _exit(7);
+                if(close(inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_READ]) != 0)
+                    _exit(3);
+                
+                if(inOutCommandInfo->RunDirectory != NULL)
+                {
+                    if(chdir(inOutCommandInfo->RunDirectory) != 0)
+                        _exit(4);
+                }
+                
+                if(inOutCommandInfo->RedirectInput)
+                {
+                    result = dup2(  inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ], 
+                                    STDIN_FILENO);
+                    if(result == -1)
+                        _exit(5);
+                }
+
+                if(inOutCommandInfo->RedirectOutput)
+                {
+                    result = dup2(  inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE], 
+                                    STDOUT_FILENO);
+                    if(result == -1)
+                        _exit(6);
+                    
+                    result = dup2(  inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE], 
+                                    STDERR_FILENO);
+                    if(result == -1)
+                        _exit(7);
+                }
+                
+                //TODO: Send the errno back to the host and display the error
+                if(execvp(executable, (char**)nullTerminatedArgs) == -1)
+                    _exit(52);
+                
+                //Should never be reached
+                
+                _exit(8);
             }
-            
-            //TODO: Send the errno back to the host and display the error
-            if(execvp(executable, (char**)nullTerminatedArgs) == -1)
-                _exit(52);
-            
-            //Should never be reached
-            
-            _exit(8);
-        }
-        //Parent
-        else //used later in if else
+            //Parent
         #else 
-        
-        posix_spawn_file_actions_t file_actions;
-        posix_spawn_file_actions_init(&file_actions);
+            posix_spawn_file_actions_t file_actions;
+            posix_spawn_file_actions_init(&file_actions);
 
-        // Close unused pipe ends in the child process
-        if (posix_spawn_file_actions_addclose(&file_actions, inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_WRITE]) != 0) {
+            // Close unused pipe ends in the child process
+            if (posix_spawn_file_actions_addclose(&file_actions, inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_WRITE]) != 0) {
+                posix_spawn_file_actions_destroy(&file_actions);
+                return 2; // Failed to close write-end of ParentToChildPipe
+            }
+
+            if (posix_spawn_file_actions_addclose(&file_actions, inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_READ]) != 0) {
+                posix_spawn_file_actions_destroy(&file_actions);
+                return 3; // Failed to close read-end of ChildToParentPipe
+            }
+
+            // Redirect input
+            if (inOutCommandInfo->RedirectInput) {
+                if (posix_spawn_file_actions_adddup2(&file_actions,
+                                                     inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ],
+                                                     STDIN_FILENO) != 0) {
+                    posix_spawn_file_actions_destroy(&file_actions);
+                    return 5; // Failed to redirect stdin
+                }
+            }
+
+            // Redirect output
+            if (inOutCommandInfo->RedirectOutput) {
+                if (posix_spawn_file_actions_adddup2(&file_actions,
+                                                     inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE],
+                                                     STDOUT_FILENO) != 0) {
+                    posix_spawn_file_actions_destroy(&file_actions);
+                    return 6; // Failed to redirect stdout
+                }
+
+                if (posix_spawn_file_actions_adddup2(&file_actions,
+                                                     inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE],
+                                                     STDERR_FILENO) != 0) {
+                    posix_spawn_file_actions_destroy(&file_actions);
+                    return 7; // Failed to redirect stderr
+                }
+            }
+
+            // Close the duplicated file descriptors
+            posix_spawn_file_actions_addclose(&file_actions, inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ]);
+            posix_spawn_file_actions_addclose(&file_actions, inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE]);
+
+            // Handle changing the directory
+            if (inOutCommandInfo->RunDirectory) {
+                perror("feature not available in posix spawn mode");
+                exit(1);
+            }
+
+            pid_t pid;
+            int spawn_status = posix_spawn(&pid, executable, &file_actions, NULL, (char **)nullTerminatedArgs, environ);
             posix_spawn_file_actions_destroy(&file_actions);
-            return 2; // Failed to close write-end of ParentToChildPipe
-        }
 
-        if (posix_spawn_file_actions_addclose(&file_actions, inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_READ]) != 0) {
-            posix_spawn_file_actions_destroy(&file_actions);
-            return 3; // Failed to close read-end of ChildToParentPipe
-        }
 
-        // Redirect input
-        if (inOutCommandInfo->RedirectInput) {
-            if (posix_spawn_file_actions_adddup2(&file_actions,
-                                                 inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ],
-                                                 STDIN_FILENO) != 0) {
-                posix_spawn_file_actions_destroy(&file_actions);
-                return 5; // Failed to redirect stdin
+
+            if (spawn_status != 0) {
+                fprintf(stderr, "posix_spawn failed: %s\n", strerror(spawn_status));
+                return 52; // Failed to spawn process
             }
-        }
-
-        // Redirect output
-        if (inOutCommandInfo->RedirectOutput) {
-            if (posix_spawn_file_actions_adddup2(&file_actions,
-                                                 inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE],
-                                                 STDOUT_FILENO) != 0) {
-                posix_spawn_file_actions_destroy(&file_actions);
-                return 6; // Failed to redirect stdout
-            }
-
-            if (posix_spawn_file_actions_adddup2(&file_actions,
-                                                 inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE],
-                                                 STDERR_FILENO) != 0) {
-                posix_spawn_file_actions_destroy(&file_actions);
-                return 7; // Failed to redirect stderr
-            }
-        }
-
-        // Close the duplicated file descriptors
-        posix_spawn_file_actions_addclose(&file_actions, inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ]);
-        posix_spawn_file_actions_addclose(&file_actions, inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE]);
-
-        // Handle changing the directory
-        if (inOutCommandInfo->RunDirectory) {
-            perror("feature not available in posix spawn mode");
-            exit(1);
-        }
-
-        pid_t pid;
-        int spawn_status = posix_spawn(&pid, executable, &file_actions, NULL, (char **)nullTerminatedArgs, environ);
-        posix_spawn_file_actions_destroy(&file_actions);
-
-
-
-        if (spawn_status != 0) {
-            fprintf(stderr, "posix_spawn failed: %s\n", strerror(spawn_status));
-            return 52; // Failed to spawn process
-        }
-        
         #endif //SYSTEM2_POSIX_SPAWN
-        //Parent code else statment
+        
+        //Parent code
         {
             free(nullTerminatedArgs);
             
