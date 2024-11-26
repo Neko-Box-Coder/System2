@@ -363,7 +363,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
             }
 
             pid_t pid;
-            int spawn_status = posix_spawn( &pid, 
+            int spawn_status = posix_spawnp(&pid, 
                                             executable, 
                                             &file_actions, 
                                             NULL, 
