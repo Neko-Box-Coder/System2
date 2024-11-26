@@ -88,7 +88,10 @@ typedef enum
     SYSTEM2_RESULT_COMMAND_WAIT_SYNC_FAILED = -6,
     SYSTEM2_RESULT_COMMAND_WAIT_ASYNC_FAILED = -7,
     SYSTEM2_RESULT_UNSUPPORTED_PLATFORM = -8,
-    SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED = -9
+    SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED = -9,
+    SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DESTROY_FAILED = -10,
+    SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DUP2_FAILED = -11,
+    SYSTEM2_RESULT_POSIX_SPAWN_RUN_DIRECTORY_NOT_SUPPORTED = -12
 } SYSTEM2_RESULT;
 
 /*
@@ -105,6 +108,9 @@ Could return the follow result:
 - SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED
 - SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED
 - SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED
+- SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DESTROY_FAILED
+- SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DUP2_FAILED
+- SYSTEM2_RESULT_POSIX_SPAWN_RUN_DIRECTORY_NOT_SUPPORTED
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2Run(  const char* command, 
                                                 System2CommandInfo* inOutCommandInfo);
@@ -121,6 +127,9 @@ Could return the follow result:
 - SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED
 - SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED
 - SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED
+- SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DESTROY_FAILED
+- SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DUP2_FAILED
+- SYSTEM2_RESULT_POSIX_SPAWN_RUN_DIRECTORY_NOT_SUPPORTED
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2RunSubprocess(const char* executable,
                                                         const char* const* args,
@@ -231,6 +240,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
             nullTerminatedArgs[i] = args[i];
         
         nullTerminatedArgs[argsCount] = NULL;
+        
         #if !defined(SYSTEM2_POSIX_SPAWN) || SYSTEM2_POSIX_SPAWN == 0
             pid_t pid = fork();
         
@@ -283,8 +293,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                 
                 _exit(8);
             }
-        
-        #else 
+        #else //SYSTEM2_POSIX_SPAWN
             posix_spawn_file_actions_t file_actions;
             posix_spawn_file_actions_init(&file_actions);
 
@@ -295,7 +304,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
             {
                 posix_spawn_file_actions_destroy(&file_actions);
                 free(nullTerminatedArgs);
-                return 2; // Failed to close write-end of ParentToChildPipe
+                return SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DESTROY_FAILED;
             }
 
             int* childToParentPipes = inOutCommandInfo->ChildToParentPipes;
@@ -304,7 +313,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
             {
                 posix_spawn_file_actions_destroy(&file_actions);
                 free(nullTerminatedArgs);
-                return 3; // Failed to close read-end of ChildToParentPipe
+                return SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DESTROY_FAILED;
             }
 
             //Redirect input
@@ -316,7 +325,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                 {
                     posix_spawn_file_actions_destroy(&file_actions);
                     free(nullTerminatedArgs);
-                    return 5; // Failed to redirect stdin
+                    return SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DUP2_FAILED;
                 }
             }
 
@@ -329,7 +338,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                 {
                     posix_spawn_file_actions_destroy(&file_actions);
                     free(nullTerminatedArgs);
-                    return 6; // Failed to redirect stdout
+                    return SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DUP2_FAILED;
                 }
 
                 if(posix_spawn_file_actions_adddup2(&file_actions,
@@ -338,7 +347,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                 {
                     posix_spawn_file_actions_destroy(&file_actions);
                     free(nullTerminatedArgs);
-                    return 7; // Failed to redirect stderr
+                    return SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DUP2_FAILED;
                 }
             }
 
@@ -349,9 +358,8 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
             //Handle changing the directory
             if(inOutCommandInfo->RunDirectory)
             {
-                perror("feature not available in posix spawn mode");
                 free(nullTerminatedArgs);
-                exit(1);
+                return SYSTEM2_RESULT_POSIX_SPAWN_RUN_DIRECTORY_NOT_SUPPORTED;
             }
 
             pid_t pid;
@@ -368,7 +376,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
             {
                 fprintf(stderr, "posix_spawn failed: %s\n", strerror(spawn_status));
                 free(nullTerminatedArgs);
-                return 52; // Failed to spawn process
+                return SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED;
             }
         #endif //SYSTEM2_POSIX_SPAWN
         
