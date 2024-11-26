@@ -294,6 +294,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                                                     parentToChildPipes[SYSTEM2_FD_WRITE]) != 0) 
             {
                 posix_spawn_file_actions_destroy(&file_actions);
+                free(nullTerminatedArgs);
                 return 2; // Failed to close write-end of ParentToChildPipe
             }
 
@@ -302,6 +303,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                                                     childToParentPipes[SYSTEM2_FD_READ]) != 0) 
             {
                 posix_spawn_file_actions_destroy(&file_actions);
+                free(nullTerminatedArgs);
                 return 3; // Failed to close read-end of ChildToParentPipe
             }
 
@@ -313,6 +315,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                                                     STDIN_FILENO) != 0) 
                 {
                     posix_spawn_file_actions_destroy(&file_actions);
+                    free(nullTerminatedArgs);
                     return 5; // Failed to redirect stdin
                 }
             }
@@ -325,6 +328,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                                                     STDOUT_FILENO) != 0)
                 {
                     posix_spawn_file_actions_destroy(&file_actions);
+                    free(nullTerminatedArgs);
                     return 6; // Failed to redirect stdout
                 }
 
@@ -333,6 +337,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                                                     STDERR_FILENO) != 0)
                 {
                     posix_spawn_file_actions_destroy(&file_actions);
+                    free(nullTerminatedArgs);
                     return 7; // Failed to redirect stderr
                 }
             }
@@ -345,6 +350,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
             if(inOutCommandInfo->RunDirectory)
             {
                 perror("feature not available in posix spawn mode");
+                free(nullTerminatedArgs);
                 exit(1);
             }
 
@@ -361,6 +367,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
             if(spawn_status != 0)
             {
                 fprintf(stderr, "posix_spawn failed: %s\n", strerror(spawn_status));
+                free(nullTerminatedArgs);
                 return 52; // Failed to spawn process
             }
         #endif //SYSTEM2_POSIX_SPAWN
