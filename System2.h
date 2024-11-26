@@ -283,66 +283,83 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                 
                 _exit(8);
             }
-            //Parent
+        
         #else 
             posix_spawn_file_actions_t file_actions;
             posix_spawn_file_actions_init(&file_actions);
 
-            // Close unused pipe ends in the child process
-            if (posix_spawn_file_actions_addclose(&file_actions, inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_WRITE]) != 0) {
+            //Close unused pipe ends in the child process
+            int* parentToChildPipes = inOutCommandInfo->ParentToChildPipes;
+            if(posix_spawn_file_actions_addclose(   &file_actions, 
+                                                    parentToChildPipes[SYSTEM2_FD_WRITE]) != 0) 
+            {
                 posix_spawn_file_actions_destroy(&file_actions);
                 return 2; // Failed to close write-end of ParentToChildPipe
             }
 
-            if (posix_spawn_file_actions_addclose(&file_actions, inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_READ]) != 0) {
+            int* childToParentPipes = inOutCommandInfo->ChildToParentPipes;
+            if(posix_spawn_file_actions_addclose(   &file_actions, 
+                                                    childToParentPipes[SYSTEM2_FD_READ]) != 0) 
+            {
                 posix_spawn_file_actions_destroy(&file_actions);
                 return 3; // Failed to close read-end of ChildToParentPipe
             }
 
-            // Redirect input
-            if (inOutCommandInfo->RedirectInput) {
-                if (posix_spawn_file_actions_adddup2(&file_actions,
-                                                     inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ],
-                                                     STDIN_FILENO) != 0) {
+            //Redirect input
+            if(inOutCommandInfo->RedirectInput)
+            {
+                if(posix_spawn_file_actions_adddup2(&file_actions,
+                                                    parentToChildPipes[SYSTEM2_FD_READ],
+                                                    STDIN_FILENO) != 0) 
+                {
                     posix_spawn_file_actions_destroy(&file_actions);
                     return 5; // Failed to redirect stdin
                 }
             }
 
-            // Redirect output
-            if (inOutCommandInfo->RedirectOutput) {
-                if (posix_spawn_file_actions_adddup2(&file_actions,
-                                                     inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE],
-                                                     STDOUT_FILENO) != 0) {
+            //Redirect output
+            if(inOutCommandInfo->RedirectOutput)
+            { 
+                if(posix_spawn_file_actions_adddup2(&file_actions,
+                                                    childToParentPipes[SYSTEM2_FD_WRITE],
+                                                    STDOUT_FILENO) != 0)
+                {
                     posix_spawn_file_actions_destroy(&file_actions);
                     return 6; // Failed to redirect stdout
                 }
 
-                if (posix_spawn_file_actions_adddup2(&file_actions,
-                                                     inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE],
-                                                     STDERR_FILENO) != 0) {
+                if(posix_spawn_file_actions_adddup2(&file_actions,
+                                                    childToParentPipes[SYSTEM2_FD_WRITE],
+                                                    STDERR_FILENO) != 0)
+                {
                     posix_spawn_file_actions_destroy(&file_actions);
                     return 7; // Failed to redirect stderr
                 }
             }
 
-            // Close the duplicated file descriptors
-            posix_spawn_file_actions_addclose(&file_actions, inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ]);
-            posix_spawn_file_actions_addclose(&file_actions, inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE]);
+            //Close the duplicated file descriptors
+            posix_spawn_file_actions_addclose(&file_actions, parentToChildPipes[SYSTEM2_FD_READ]);
+            posix_spawn_file_actions_addclose(&file_actions, childToParentPipes[SYSTEM2_FD_WRITE]);
 
-            // Handle changing the directory
-            if (inOutCommandInfo->RunDirectory) {
+            //Handle changing the directory
+            if(inOutCommandInfo->RunDirectory)
+            {
                 perror("feature not available in posix spawn mode");
                 exit(1);
             }
 
             pid_t pid;
-            int spawn_status = posix_spawn(&pid, executable, &file_actions, NULL, (char **)nullTerminatedArgs, environ);
+            int spawn_status = posix_spawn( &pid, 
+                                            executable, 
+                                            &file_actions, 
+                                            NULL, 
+                                            (char **)nullTerminatedArgs, 
+                                            environ);
+            
             posix_spawn_file_actions_destroy(&file_actions);
 
-
-
-            if (spawn_status != 0) {
+            if(spawn_status != 0)
+            {
                 fprintf(stderr, "posix_spawn failed: %s\n", strerror(spawn_status));
                 return 52; // Failed to spawn process
             }
