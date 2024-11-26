@@ -211,7 +211,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
 #if defined(__unix__) || defined(__APPLE__)
     #include <sys/wait.h>
     
-    //this removes the rundir feature the intended use is on no overcommit systems with a new glibc.
+    //This bypasses inheriting memory from parent process (glibc 2.24) but removes the rundir feature
     //#define SYSTEM2_POSIX_SPAWN 1
     #if defined(SYSTEM2_POSIX_SPAWN) && SYSTEM2_POSIX_SPAWN != 0
         #include <spawn.h>
