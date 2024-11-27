@@ -79,7 +79,7 @@ int main(int argc, char** argv)
     outputBuffer[bytesRead] = 0;
     
     int returnCode = -1;
-    System2GetCommandReturnValueSync(&commandInfo, &returnCode);
+    System2GetCommandReturnValueSync(&commandInfo, &returnCode, false);
     
     printf("%s\n", outputBuffer);
     printf("%s: %d\n", "Command has executed with return value", returnCode);
@@ -179,9 +179,27 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2WriteToInput( const System2CommandInfo
                                                         const char* inputBuffer, 
                                                         const uint32_t inputBufferSize);
 
+
+//TODO: Might want to add this to have this ability to close input pipe manually
+//SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2CloseInput(System2CommandInfo* info);
+
+/*
+Cleanup any open handles associated with the command.
+
+Could return the follow result:
+- SYSTEM2_RESULT_SUCCESS
+- SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED
+*/
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2CleanupCommand(const System2CommandInfo* info);
+
 /*
 Gets the return code if the command has finished.
 Otherwise, this will return SYSTEM2_RESULT_COMMAND_NOT_FINISHED immediately.
+
+If `manualCleanup` is false, 
+`System2CleanupCommand()` is automatically called when the command has exited.
+
+Otherwise, `System2CleanupCommand()` should be called when the command has exited.
 
 Could return the follow result:
 - SYSTEM2_RESULT_SUCCESS
@@ -192,10 +210,16 @@ Could return the follow result:
 */
 SYSTEM2_FUNC_PREFIX 
 SYSTEM2_RESULT System2GetCommandReturnValueAsync(   const System2CommandInfo* info, 
-                                                    int* outReturnCode);
+                                                    int* outReturnCode,
+                                                    bool manualCleanup);
 
 /*
 Wait for the command to finish and gets the return code
+
+If `manualCleanup` is false, 
+`System2CleanupCommand()` is automatically called when the command has exited.
+
+Otherwise, `System2CleanupCommand()` should be called when the command has exited.
 
 Could return the follow result:
 - SYSTEM2_RESULT_SUCCESS
@@ -204,7 +228,8 @@ Could return the follow result:
 - SYSTEM2_RESULT_COMMAND_WAIT_SYNC_FAILED
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System2CommandInfo* info, 
-                                                                    int* outReturnCode);
+                                                                    int* outReturnCode,
+                                                                    bool manualCleanup);
 ```
 
 

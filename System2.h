@@ -37,6 +37,7 @@ If you do not want to use header only due to system header leakage
     #endif
 #endif
 
+//TODO: MSVC dllimport dllexport
 #if SYSTEM2_DECLARATION_ONLY || SYSTEM2_IMPLEMENTATION_ONLY
     //We don't need any inline prefix if we are having declaration and implementation separated
     #define SYSTEM2_FUNC_PREFIX
@@ -172,8 +173,22 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2WriteToInput( const System2CommandInfo
 //SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2CloseInput(System2CommandInfo* info);
 
 /*
+Cleanup any open handles associated with the command.
+
+Could return the follow result:
+- SYSTEM2_RESULT_SUCCESS
+- SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED
+*/
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2CleanupCommand(const System2CommandInfo* info);
+
+/*
 Gets the return code if the command has finished.
 Otherwise, this will return SYSTEM2_RESULT_COMMAND_NOT_FINISHED immediately.
+
+If `manualCleanup` is false, 
+`System2CleanupCommand()` is automatically called when the command has exited.
+
+Otherwise, `System2CleanupCommand()` should be called when the command has exited.
 
 Could return the follow result:
 - SYSTEM2_RESULT_SUCCESS
@@ -184,10 +199,16 @@ Could return the follow result:
 */
 SYSTEM2_FUNC_PREFIX 
 SYSTEM2_RESULT System2GetCommandReturnValueAsync(   const System2CommandInfo* info, 
-                                                    int* outReturnCode);
+                                                    int* outReturnCode,
+                                                    bool manualCleanup);
 
 /*
 Wait for the command to finish and gets the return code
+
+If `manualCleanup` is false, 
+`System2CleanupCommand()` is automatically called when the command has exited.
+
+Otherwise, `System2CleanupCommand()` should be called when the command has exited.
 
 Could return the follow result:
 - SYSTEM2_RESULT_SUCCESS
@@ -196,7 +217,8 @@ Could return the follow result:
 - SYSTEM2_RESULT_COMMAND_WAIT_SYNC_FAILED
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System2CommandInfo* info, 
-                                                                    int* outReturnCode);
+                                                                    int* outReturnCode,
+                                                                    bool manualCleanup);
 
 
 //============================================================
@@ -458,9 +480,21 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         return SYSTEM2_RESULT_SUCCESS;
     }
     
+    SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2CleanupCommandPosix(const System2CommandInfo* info)
+    {
+        if(close(info->ChildToParentPipes[SYSTEM2_FD_READ]) != 0)
+            return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+
+        if(close(info->ParentToChildPipes[SYSTEM2_FD_WRITE]) != 0)
+            return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+        
+        return SYSTEM2_RESULT_SUCCESS;
+    }
+    
     SYSTEM2_FUNC_PREFIX 
     SYSTEM2_RESULT System2GetCommandReturnValueAsyncPosix(  const System2CommandInfo* info, 
-                                                            int* outReturnCode)
+                                                            int* outReturnCode,
+                                                            bool manualCleanup)
     {
         int status;
         pid_t pidResult = waitpid(info->ChildProcessID, &status, WNOHANG);
@@ -470,11 +504,8 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         else if(pidResult == -1)
             return SYSTEM2_RESULT_COMMAND_WAIT_ASYNC_FAILED;
 
-        if(close(info->ChildToParentPipes[SYSTEM2_FD_READ]) != 0)
-            return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
-
-        if(close(info->ParentToChildPipes[SYSTEM2_FD_WRITE]) != 0)
-            return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+        if(!manualCleanup)
+            System2CleanupCommandPosix(info);
         
         if(!WIFEXITED(status))
         {
@@ -488,7 +519,8 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
     
     SYSTEM2_FUNC_PREFIX 
     SYSTEM2_RESULT System2GetCommandReturnValueSyncPosix(   const System2CommandInfo* info, 
-                                                            int* outReturnCode)
+                                                            int* outReturnCode,
+                                                            bool manualCleanup)
     {
         int status;
         pid_t pidResult = waitpid(info->ChildProcessID, &status, 0);
@@ -496,11 +528,8 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         if(pidResult == -1)
             return SYSTEM2_RESULT_COMMAND_WAIT_SYNC_FAILED;
         
-        if(close(info->ChildToParentPipes[SYSTEM2_FD_READ]) != 0)
-            return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
-
-        if(close(info->ParentToChildPipes[SYSTEM2_FD_WRITE]) != 0)
-            return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+        if(!manualCleanup)
+            System2CleanupCommandPosix(info);
         
         if(!WIFEXITED(status))
         {
@@ -1034,20 +1063,8 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         return SYSTEM2_RESULT_SUCCESS;
     }
     
-    SYSTEM2_FUNC_PREFIX 
-    SYSTEM2_RESULT System2GetCommandReturnValueAsyncWindows(const System2CommandInfo* info, 
-                                                            int* outReturnCode)
+    SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2CleanupCommandWindows(const System2CommandInfo* info)
     {
-        DWORD exitCode;
-        if(!GetExitCodeProcess(info->ChildProcessHandle, &exitCode))
-            return SYSTEM2_RESULT_COMMAND_WAIT_ASYNC_FAILED;
-        
-        if( exitCode == STILL_ACTIVE && 
-            WaitForSingleObject(info->ChildProcessHandle, 0) == WAIT_TIMEOUT)
-        {
-            return SYSTEM2_RESULT_COMMAND_NOT_FINISHED;
-        }
-        
         if(info->RedirectOutput)
         {
             if(!CloseHandle(info->ChildToParentPipes[SYSTEM2_FD_READ]))
@@ -1061,28 +1078,39 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         }
 
         CloseHandle(info->ChildProcessHandle);
-        *outReturnCode = exitCode;
         return SYSTEM2_RESULT_SUCCESS;
     }
     
     SYSTEM2_FUNC_PREFIX 
+    SYSTEM2_RESULT System2GetCommandReturnValueAsyncWindows(const System2CommandInfo* info, 
+                                                            int* outReturnCode,
+                                                            bool manualCleanup)
+    {
+        DWORD exitCode;
+        if(!GetExitCodeProcess(info->ChildProcessHandle, &exitCode))
+            return SYSTEM2_RESULT_COMMAND_WAIT_ASYNC_FAILED;
+        
+        if( exitCode == STILL_ACTIVE && 
+            WaitForSingleObject(info->ChildProcessHandle, 0) == WAIT_TIMEOUT)
+        {
+            return SYSTEM2_RESULT_COMMAND_NOT_FINISHED;
+        }
+
+        *outReturnCode = exitCode;
+        
+        if(!manualCleanup)
+            return System2CleanupCommandWindows(info)
+        else
+            return SYSTEM2_RESULT_SUCCESS;
+    }
+    
+    SYSTEM2_FUNC_PREFIX 
     SYSTEM2_RESULT System2GetCommandReturnValueSyncWindows( const System2CommandInfo* info, 
-                                                            int* outReturnCode)
+                                                            int* outReturnCode,
+                                                            bool manualCleanup)
     {
         if(WaitForSingleObject(info->ChildProcessHandle, INFINITE) != 0)
             return SYSTEM2_RESULT_COMMAND_WAIT_SYNC_FAILED;
-        
-        if(info->RedirectOutput)
-        {
-            if(!CloseHandle(info->ChildToParentPipes[SYSTEM2_FD_READ]))
-                return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
-        }
-        
-        if(info->RedirectInput)
-        {
-            if(!CloseHandle(info->ParentToChildPipes[SYSTEM2_FD_WRITE]))
-                return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
-        }
         
         DWORD exitCode;
         if(!GetExitCodeProcess(info->ChildProcessHandle, &exitCode))
@@ -1092,9 +1120,12 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
             return SYSTEM2_RESULT_COMMAND_TERMINATED;
         }
         
-        CloseHandle(info->ChildProcessHandle);
         *outReturnCode = exitCode;
-        return SYSTEM2_RESULT_SUCCESS;
+        
+        if(!manualCleanup)
+            return System2CleanupCommandWindows(info)
+        else
+            return SYSTEM2_RESULT_SUCCESS;
     }
 #endif
 
@@ -1151,14 +1182,26 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2WriteToInput( const System2CommandInfo
     #endif
 }
 
-SYSTEM2_FUNC_PREFIX 
-SYSTEM2_RESULT System2GetCommandReturnValueAsync(   const System2CommandInfo* info, 
-                                                    int* outReturnCode)
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2CleanupCommand(const System2CommandInfo* info)
 {
     #if defined(__unix__) || defined(__APPLE__)
-        return System2GetCommandReturnValueAsyncPosix(info, outReturnCode);
+        return System2CleanupCommandPosix(info);
     #elif defined(_WIN32)
-        return System2GetCommandReturnValueAsyncWindows(info, outReturnCode);
+        return System2CleanupCommandWindows(info);
+    #else
+        return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM; 
+    #endif
+}
+
+SYSTEM2_FUNC_PREFIX 
+SYSTEM2_RESULT System2GetCommandReturnValueAsync(   const System2CommandInfo* info, 
+                                                    int* outReturnCode,
+                                                    bool manualCleanup)
+{
+    #if defined(__unix__) || defined(__APPLE__)
+        return System2GetCommandReturnValueAsyncPosix(info, outReturnCode, manualCleanup);
+    #elif defined(_WIN32)
+        return System2GetCommandReturnValueAsyncWindows(info, outReturnCode, manualCleanup);
     #else
         return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM; 
     #endif
@@ -1166,12 +1209,13 @@ SYSTEM2_RESULT System2GetCommandReturnValueAsync(   const System2CommandInfo* in
 
 SYSTEM2_FUNC_PREFIX 
 SYSTEM2_RESULT System2GetCommandReturnValueSync(const System2CommandInfo* info, 
-                                                int* outReturnCode)
+                                                int* outReturnCode,
+                                                bool manualCleanup)
 {
     #if defined(__unix__) || defined(__APPLE__)
-        return System2GetCommandReturnValueSyncPosix(info, outReturnCode);
+        return System2GetCommandReturnValueSyncPosix(info, outReturnCode, manualCleanup);
     #elif defined(_WIN32)
-        return System2GetCommandReturnValueSyncWindows(info, outReturnCode);
+        return System2GetCommandReturnValueSyncWindows(info, outReturnCode, manualCleanup);
     #else
         return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM; 
     #endif

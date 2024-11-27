@@ -67,7 +67,7 @@ void BlockedCommandExample(void)
     EXIT_IF_FAILED(result);
     
     int returnCode = -1;
-    result = System2GetCommandReturnValueSync(&commandInfo, &returnCode);
+    result = System2GetCommandReturnValueSync(&commandInfo, &returnCode, false);
     EXIT_IF_FAILED(result);
 }
 
@@ -88,7 +88,7 @@ void StdinStdoutExample(void)
     EXIT_IF_FAILED(result);
     
     int returnCode = -1;
-    result = System2GetCommandReturnValueSync(&commandInfo, &returnCode);
+    result = System2GetCommandReturnValueSync(&commandInfo, &returnCode, false);
     EXIT_IF_FAILED(result);
     
     printf("%s: %d\n", "Command has executed with return value", returnCode);
@@ -131,11 +131,11 @@ int main(int argc, char** argv)
         EXIT_IF_FAILED(result);
     }
     
-    //Now we can safely check the output of a process without blocking
     //Output: 1st command has finished with return value: : 0
     {
         int returnCode = -1;
-        SYSTEM2_RESULT result = System2GetCommandReturnValueAsync(&commandInfo, &returnCode);
+        //True to perform manual cleanup
+        SYSTEM2_RESULT result = System2GetCommandReturnValueAsync(&commandInfo, &returnCode, true);
         
         if(result == SYSTEM2_RESULT_COMMAND_NOT_FINISHED)
             printf("1st command not yet finished");
@@ -144,6 +144,9 @@ int main(int argc, char** argv)
             EXIT_IF_FAILED(result);
             printf("%s: %d\n", "1st command has finished with return value", returnCode);
         }
+        
+        result = System2CleanupCommand(&commandInfo);
+        EXIT_IF_FAILED(result);
     }
     
     printf("\nUsing stdin now, enter the value of testVar: ");
