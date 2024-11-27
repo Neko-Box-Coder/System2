@@ -1042,6 +1042,12 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         if(!GetExitCodeProcess(info->ChildProcessHandle, &exitCode))
             return SYSTEM2_RESULT_COMMAND_WAIT_ASYNC_FAILED;
         
+        if( exitCode == STILL_ACTIVE && 
+            WaitForSingleObject(info->ChildProcessHandle, 0) == WAIT_TIMEOUT)
+        {
+            return SYSTEM2_RESULT_COMMAND_NOT_FINISHED;
+        }
+        
         if(info->RedirectOutput)
         {
             if(!CloseHandle(info->ChildToParentPipes[SYSTEM2_FD_READ]))
