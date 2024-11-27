@@ -1099,7 +1099,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         *outReturnCode = exitCode;
         
         if(!manualCleanup)
-            return System2CleanupCommandWindows(info)
+            return System2CleanupCommandWindows(info);
         else
             return SYSTEM2_RESULT_SUCCESS;
     }
@@ -1123,7 +1123,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         *outReturnCode = exitCode;
         
         if(!manualCleanup)
-            return System2CleanupCommandWindows(info)
+            return System2CleanupCommandWindows(info);
         else
             return SYSTEM2_RESULT_SUCCESS;
     }

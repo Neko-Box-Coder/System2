@@ -38,7 +38,8 @@ System2CommandInfo RedirectIOExample(void)
     #endif
     
     #if defined(_WIN32)
-        result = System2Run("timeout 1; set /p testVar= && echo testVar is \"!testVar!\"", &commandInfo);
+        result = System2Run("ping localhost -n 2 > nul & set /p testVar= && "
+                            "echo testVar is \"!testVar!\"", &commandInfo);
     #endif
     
     EXIT_IF_FAILED(result);
@@ -61,7 +62,7 @@ void BlockedCommandExample(void)
     #endif
     
     #if defined(_WIN32)
-        result = System2Run("timeout 2; echo Hello", &commandInfo);
+        result = System2Run("ping localhost -n 3 > nul & echo Hello", &commandInfo);
     #endif
     
     EXIT_IF_FAILED(result);
@@ -112,6 +113,7 @@ int main(int argc, char** argv)
     BlockedCommandExample();
     
     //The first command should be finish by now.
+    //Output: testVar is "test content"
     //Output: 1st command has finished with return value: : 0
     {
         int returnCode = -1;
@@ -122,8 +124,6 @@ int main(int argc, char** argv)
         {
             char outputBuffer[1024];
             
-            //Output: testVar is "test content"
-            SYSTEM2_RESULT result;
             do
             {
                 uint32_t bytesRead = 0;
