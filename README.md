@@ -34,8 +34,18 @@ provide input to stdin and capture the output from stdout and stderr.
 \* See Remarks for UTF-8 support
 
 #### Quick Start With Minimum running example (Without checks)
+Check [main.c](./main.c) for more examples.
 
 ```c
+//This bypasses inheriting memory from parent process on linux (glibc 2.24) but removes the ability to use RunDirectory.
+//See https://github.com/Neko-Box-Coder/System2/issues/3
+//#define SYSTEM2_POSIX_SPAWN 1
+
+//#define SYSTEM2_DECLARATION_ONLY 1
+
+//#define SYSTEM2_IMPLEMENTATION_ONLY 1
+
+
 #include "System2.h"
 #include <stdio.h>
 
@@ -110,6 +120,9 @@ Could return the follow result:
 - SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED
 - SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED
 - SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED
+- SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DESTROY_FAILED
+- SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DUP2_FAILED
+- SYSTEM2_RESULT_POSIX_SPAWN_RUN_DIRECTORY_NOT_SUPPORTED
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2Run(  const char* command, 
                                                 System2CommandInfo* inOutCommandInfo);
@@ -126,6 +139,9 @@ Could return the follow result:
 - SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED
 - SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED
 - SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED
+- SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DESTROY_FAILED
+- SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DUP2_FAILED
+- SYSTEM2_RESULT_POSIX_SPAWN_RUN_DIRECTORY_NOT_SUPPORTED
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2RunSubprocess(const char* executable,
                                                         const char* const* args,
@@ -209,6 +225,10 @@ In that case, you can use the source version of the library.
 
 ---
 #### Remarks
+- For Linux or MacOS, `System2Run()` and `System2RunSubprocess()` will inherit the parent process memory (due to how `fork()` works).
+    Meaning it is possible to over commit memory and therefore causes out of memory error.
+    - A temporary fix is there by using `posix_spawn()` instead of `fork()` by `#define SYSTEM2_POSIX_SPAWN 1` before `#include "System2.h"`
+    - See [Issue](https://github.com/Neko-Box-Coder/System2/issues/3)
 - For POSIX, UTF-8 support should work if it is available on the system. This is however **not tested**.
 - For Windows, UTF-8 support works for the **command** input (in theory XP and above but tested on Windows 10). 
     However, the output part is **NOT** in UTF-8. The closest thing you can get for the output is UTF-16 as far as I know.
