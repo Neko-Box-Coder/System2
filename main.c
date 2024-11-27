@@ -111,39 +111,34 @@ int main(int argc, char** argv)
     //Output: Hello
     BlockedCommandExample();
     
-    //The first command should be finish by now. We need to clear the redirected output first
-    //  otherwise the process won't terminate.
-    {
-        char outputBuffer[1024];
-        
-        //System2ReadFromOutput can also return SYSTEM2_RESULT_READ_NOT_FINISHED if we have more to read
-        //Output: testVar is "test content"
-        SYSTEM2_RESULT result;
-        do
-        {
-            uint32_t bytesRead = 0;
-            result = System2ReadFromOutput(&commandInfo, outputBuffer, 1023, &bytesRead);
-            outputBuffer[bytesRead] = 0;
-            printf("%s", outputBuffer);
-        }
-        while(result == SYSTEM2_RESULT_READ_NOT_FINISHED);
-        
-        EXIT_IF_FAILED(result);
-    }
-    
+    //The first command should be finish by now.
     //Output: 1st command has finished with return value: : 0
     {
         int returnCode = -1;
         //True to perform manual cleanup
         SYSTEM2_RESULT result = System2GetCommandReturnValueAsync(&commandInfo, &returnCode, true);
         
-        if(result == SYSTEM2_RESULT_COMMAND_NOT_FINISHED)
-            printf("1st command not yet finished");
-        else
+        if(result == SYSTEM2_RESULT_SUCCESS)
         {
-            EXIT_IF_FAILED(result);
+            char outputBuffer[1024];
+            
+            //Output: testVar is "test content"
+            SYSTEM2_RESULT result;
+            do
+            {
+                uint32_t bytesRead = 0;
+                result = System2ReadFromOutput(&commandInfo, outputBuffer, 1023, &bytesRead);
+                outputBuffer[bytesRead] = 0;
+                printf("%s", outputBuffer);
+            }
+            while(result == SYSTEM2_RESULT_READ_NOT_FINISHED);
+            
             printf("%s: %d\n", "1st command has finished with return value", returnCode);
         }
+        else if(result == SYSTEM2_RESULT_COMMAND_NOT_FINISHED)
+            printf("1st command not yet finished");
+        else
+            EXIT_IF_FAILED(result);
         
         result = System2CleanupCommand(&commandInfo);
         EXIT_IF_FAILED(result);
