@@ -178,6 +178,13 @@ SYSTEM2_RESULT System2GetCommandReturnValueAsync(   const System2CommandInfo* in
                                                     int* outReturnCode);
 
 /*
+Checks if a command finished or not.
+this does not close the pipes so the output and return code can still be read
+*/
+SYSTEM2_FUNC_PREFIX
+bool System2CommandFinished( const System2CommandInfo* info);
+
+/*
 Wait for the command to finish and gets the return code
 
 Could return the follow result:
@@ -423,7 +430,16 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         
         return SYSTEM2_RESULT_SUCCESS;
     }
-    
+
+    SYSTEM2_FUNC_PREFIX
+    bool System2CommandFinishedPosix(  const System2CommandInfo* info){
+        pid_t pidResult = waitpid(info->ChildProcessID, &status, WNOHANG);
+        if(pidResult == 0 || pidResult ==-1){
+            return false;
+        }
+        return true;
+    }
+
     SYSTEM2_FUNC_PREFIX 
     SYSTEM2_RESULT System2GetCommandReturnValueAsyncPosix(  const System2CommandInfo* info, 
                                                             int* outReturnCode)
@@ -1000,6 +1016,19 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         return SYSTEM2_RESULT_SUCCESS;
     }
     
+    SYSTEM2_FUNC_PREFIX
+    bool System2CommandFinishedWindows(  const System2CommandInfo* info){
+        DWORD exitCode;
+        if(!GetExitCodeProcess(info->ChildProcessHandle, &exitCode))
+            return SYSTEM2_RESULT_COMMAND_WAIT_ASYNC_FAILED;
+
+        if (exitCode == STILL_ACTIVE) {
+            return false;
+        }
+
+        return true;
+    }
+
     SYSTEM2_FUNC_PREFIX 
     SYSTEM2_RESULT System2GetCommandReturnValueAsyncWindows(const System2CommandInfo* info, 
                                                             int* outReturnCode)
@@ -1008,6 +1037,11 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         if(!GetExitCodeProcess(info->ChildProcessHandle, &exitCode))
             return SYSTEM2_RESULT_COMMAND_WAIT_ASYNC_FAILED;
         
+        //bug fix??
+        if (exitCode == STILL_ACTIVE){
+            return SYSTEM2_RESULT_COMMAND_NOT_FINISHED;
+        }
+
         if(info->RedirectOutput)
         {
             if(!CloseHandle(info->ChildToParentPipes[SYSTEM2_FD_READ]))
@@ -1119,6 +1153,16 @@ SYSTEM2_RESULT System2GetCommandReturnValueAsync(   const System2CommandInfo* in
         return System2GetCommandReturnValueAsyncPosix(info, outReturnCode);
     #elif defined(_WIN32)
         return System2GetCommandReturnValueAsyncWindows(info, outReturnCode);
+    #else
+        return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM; 
+    #endif
+}
+
+SYSTEM2_FUNC_PREFIX bool System2CommandFinished(const System2CommandInfo* info){
+    #if defined(__unix__) || defined(__APPLE__)
+        return System2CommandFinishedPosix(info, outReturnCode);
+    #elif defined(_WIN32)
+        return System2CommandFinishedWindows(info, outReturnCode);
     #else
         return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM; 
     #endif
