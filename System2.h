@@ -31,6 +31,11 @@ If you do not want to use header only due to system header leakage
     #if defined(_WIN32)
         #ifndef _CRT_SECURE_NO_WARNINGS
             #define _CRT_SECURE_NO_WARNINGS
+            #define INTERNAL_SYSTEM2_APPLY_NO_WARNINGS 1
+        #endif
+        
+        #if !defined(NOMINMAX)
+            #define NOMINMAX 1
         #endif
         
         #include <windows.h>
@@ -1220,6 +1225,13 @@ SYSTEM2_RESULT System2GetCommandReturnValueSync(const System2CommandInfo* info,
         return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM; 
     #endif
 }
+
+
+#if defined(_WIN32)
+    #if INTERNAL_SYSTEM2_APPLY_NO_WARNINGS
+        #undef _CRT_SECURE_NO_WARNINGS
+    #endif
+#endif
 
 //SYSTEM2_DECLARATION_ONLY
 #endif
