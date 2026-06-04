@@ -114,7 +114,7 @@ This uses
 `sh -c command` for POSIX and
 `cmd /s /v /c command` for Windows
 
-Could return the follow result:
+Could return the following result:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_PIPE_CREATE_FAILED
 - SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED
@@ -123,6 +123,7 @@ Could return the follow result:
 - SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DESTROY_FAILED
 - SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DUP2_FAILED
 - SYSTEM2_RESULT_POSIX_SPAWN_RUN_DIRECTORY_NOT_SUPPORTED
+- SYSTEM2_RESULT_INVALID_ARGUMENT
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2Run(  const char* command, 
                                                 System2CommandInfo* inOutCommandInfo);
@@ -133,7 +134,7 @@ Runs the executable (which can search in PATH env variable) with the given argum
 
 On Windows, automatic escaping can be removed by setting the `DisableEscape` in `inOutCommandInfo`
 
-Could return the follow result:
+Could return the following result:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_PIPE_CREATE_FAILED
 - SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED
@@ -142,6 +143,7 @@ Could return the follow result:
 - SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DESTROY_FAILED
 - SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DUP2_FAILED
 - SYSTEM2_RESULT_POSIX_SPAWN_RUN_DIRECTORY_NOT_SUPPORTED
+- SYSTEM2_RESULT_INVALID_ARGUMENT
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2RunSubprocess(const char* executable,
                                                         const char* const* args,
@@ -158,10 +160,11 @@ this function can be called again until SYSTEM2_RESULT_SUCCESS to retrieve the r
 
 outBytesRead determines how many bytes have been read for **this** function call
 
-Could return the follow result:
+Could return the following result:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_READ_NOT_FINISHED
 - SYSTEM2_RESULT_READ_FAILED
+- SYSTEM2_RESULT_INVALID_ARGUMENT
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2ReadFromOutput(   const System2CommandInfo* info, 
                                                             char* outputBuffer, 
@@ -171,9 +174,10 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2ReadFromOutput(   const System2Command
 /*
 Write the input (stdin) to the command. 
 
-Could return the follow result:
+Could return the following result:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_WRITE_FAILED
+- SYSTEM2_RESULT_INVALID_ARGUMENT
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2WriteToInput( const System2CommandInfo* info, 
                                                         const char* inputBuffer, 
@@ -186,9 +190,10 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2WriteToInput( const System2CommandInfo
 /*
 Cleanup any open handles associated with the command.
 
-Could return the follow result:
+Could return the following result:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED
+- SYSTEM2_RESULT_INVALID_ARGUMENT
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2CleanupCommand(const System2CommandInfo* info);
 
@@ -201,12 +206,13 @@ If `manualCleanup` is false,
 
 Otherwise, `System2CleanupCommand()` should be called when the command has exited.
 
-Could return the follow result:
+Could return the following result:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_COMMAND_NOT_FINISHED
 - SYSTEM2_RESULT_COMMAND_TERMINATED
 - SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED
 - SYSTEM2_RESULT_COMMAND_WAIT_ASYNC_FAILED
+- SYSTEM2_RESULT_INVALID_ARGUMENT
 */
 SYSTEM2_FUNC_PREFIX 
 SYSTEM2_RESULT System2GetCommandReturnValueAsync(   const System2CommandInfo* info, 
@@ -221,11 +227,12 @@ If `manualCleanup` is false,
 
 Otherwise, `System2CleanupCommand()` should be called when the command has exited.
 
-Could return the follow result:
+Could return the following result:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_COMMAND_TERMINATED
 - SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED
 - SYSTEM2_RESULT_COMMAND_WAIT_SYNC_FAILED
+- SYSTEM2_RESULT_INVALID_ARGUMENT
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System2CommandInfo* info, 
                                                                     int* outReturnCode,
