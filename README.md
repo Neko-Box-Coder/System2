@@ -237,6 +237,47 @@ Could return the following result:
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System2CommandInfo* info, 
                                                                     int* outReturnCode,
                                                                     bool manualCleanup);
+
+/*
+Returns the count of environment variables, along with a resource handle which can be used to 
+access the environment variable values with `System2GetEnvironmentVariables()`.
+
+The resource handle should be freed with `System2EnvironmentVariableFree()` when done.
+
+Could return the following result:
+- SYSTEM2_RESULT_SUCCESS
+- SYSTEM2_RESULT_INVALID_ARGUMENT
+- SYSTEM2_RESULT_MALLOC_FAILED
+*/
+SYSTEM2_FUNC_PREFIX 
+SYSTEM2_RESULT System2GetEnvironmentVariablesCount(int* outCount, void** outResource);
+
+/*
+Returns the environment variable name and value for a given index. The behavior is undefined if 
+trying to index an environment variable outside of bound.
+
+The content of the returned environment name and value should be copied to a local buffer 
+immediately as changes to the environment variable might invalidate them.
+
+Could return the following result:
+- SYSTEM2_RESULT_SUCCESS
+- SYSTEM2_RESULT_INVALID_ARGUMENT
+*/
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetEnvironmentVariable(   const void* resource,
+                                                                    const char** outName,
+                                                                    int* outNameLength,
+                                                                    const char** outValue,
+                                                                    int* outValueLength,
+                                                                    int index);
+
+/*
+Free the resource handle created by `System2GetEnvironmentVariablesCount()` and set it to NULL.
+
+Could return the following result:
+- SYSTEM2_RESULT_SUCCESS
+- SYSTEM2_RESULT_INVALID_ARGUMENT
+*/
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2EnvironmentVariableFree(void** resource);
 ```
 
 

@@ -98,7 +98,8 @@ typedef enum
     SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DESTROY_FAILED = -10,
     SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DUP2_FAILED = -11,
     SYSTEM2_RESULT_POSIX_SPAWN_RUN_DIRECTORY_NOT_SUPPORTED = -12,
-    SYSTEM2_RESULT_INVALID_ARGUMENT = -13
+    SYSTEM2_RESULT_INVALID_ARGUMENT = -13,
+    SYSTEM2_RESULT_MALLOC_FAILED = -14
 } SYSTEM2_RESULT;
 
 /*
@@ -233,6 +234,47 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                                                                     int* outReturnCode,
                                                                     bool manualCleanup);
 
+/*
+Returns the count of environment variables, along with a resource handle which can be used to 
+access the environment variable values with `System2GetEnvironmentVariables()`.
+
+The resource handle should be freed with `System2EnvironmentVariableFree()` when done.
+
+Could return the following result:
+- SYSTEM2_RESULT_SUCCESS
+- SYSTEM2_RESULT_INVALID_ARGUMENT
+- SYSTEM2_RESULT_MALLOC_FAILED
+*/
+SYSTEM2_FUNC_PREFIX 
+SYSTEM2_RESULT System2GetEnvironmentVariablesCount(int* outCount, void** outResource);
+
+/*
+Returns the environment variable name and value for a given index. The behavior is undefined if 
+trying to index an environment variable outside of bound.
+
+The content of the returned environment name and value should be copied to a local buffer 
+immediately as changes to the environment variable might invalidate them.
+
+Could return the following result:
+- SYSTEM2_RESULT_SUCCESS
+- SYSTEM2_RESULT_INVALID_ARGUMENT
+*/
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetEnvironmentVariable(   const void* resource,
+                                                                    const char** outName,
+                                                                    int* outNameLength,
+                                                                    const char** outValue,
+                                                                    int* outValueLength,
+                                                                    int index);
+
+/*
+Free the resource handle created by `System2GetEnvironmentVariablesCount()` and set it to NULL.
+
+Could return the following result:
+- SYSTEM2_RESULT_SUCCESS
+- SYSTEM2_RESULT_INVALID_ARGUMENT
+*/
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2EnvironmentVariableFree(void** resource);
+
 
 //============================================================
 //Implementation
@@ -245,12 +287,12 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
 
 #if defined(__unix__) || defined(__APPLE__)
     #include <sys/wait.h>
+    extern char** environ;
     
     //This bypasses inheriting memory from parent process (glibc 2.24) but removes the rundir feature
     //#define SYSTEM2_POSIX_SPAWN 1
     #if defined(SYSTEM2_POSIX_SPAWN) && SYSTEM2_POSIX_SPAWN != 0
         #include <spawn.h>
-        extern char **environ;
     #endif
 
     SYSTEM2_FUNC_PREFIX 
@@ -571,7 +613,106 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         *outReturnCode = WEXITSTATUS(status);
         return SYSTEM2_RESULT_SUCCESS;
     }
-#endif
+    
+    typedef struct
+    {
+        char** Envs;
+        int EnvsLength;
+    } System2EnvVarInfoPosix;
+    
+    SYSTEM2_FUNC_PREFIX 
+    SYSTEM2_RESULT System2GetEnvironmentVariablesCountPosix(int* outCount, void** outResource)
+    {
+        if(!outCount || !outResource)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
+        *outResource = NULL;
+        *outCount = 0;
+        while(environ[*outCount])
+            ++(*outCount);
+        
+        System2EnvVarInfoPosix* info = calloc(1, sizeof(System2EnvVarInfoPosix));
+        if(!info)
+            return SYSTEM2_RESULT_MALLOC_FAILED;
+        
+        info->Envs = calloc(*outCount, sizeof(char*));
+        if(!info->Envs)
+        {
+            free(info);
+            return SYSTEM2_RESULT_MALLOC_FAILED;
+        }
+        
+        info->EnvsLength = *outCount;
+        int i;
+        for(i = 0; i < *outCount; ++i)
+        {
+            int memNeeded = strlen(environ[i]) + 1;
+            char* envVar = (char*)malloc(memNeeded);
+            if(!envVar)
+                break;
+            
+            memcpy(envVar, environ[i], memNeeded);
+            info->Envs[i] = envVar;
+        }
+        
+        //Failed to allocate for all of the env strings
+        if(i != *outCount)
+        {
+            for(int j = 0; j < i; ++j)
+                free(info->Envs[j]);
+            
+            free(info->Envs);
+            free(info);
+            return SYSTEM2_RESULT_MALLOC_FAILED;
+        }
+        
+        *outResource = info;
+        return SYSTEM2_RESULT_SUCCESS;
+    }
+    
+    SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetEnvironmentVariablePosix(  const void* resource,
+                                                                            const char** outName,
+                                                                            int* outNameLength,
+                                                                            const char** outValue,
+                                                                            int* outValueLength,
+                                                                            int index)
+    {
+        if(!outName || !outNameLength || !outValue || !outValueLength || !resource)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
+        char* env = ((System2EnvVarInfoPosix*)resource)->Envs[index];
+        *outName = env;
+        char* equal = env;
+        while(equal)
+        {
+            if(*equal == '=')
+                break;
+            ++equal;
+        }
+        *outNameLength = (int)(equal - env);
+        
+        env = equal + 1;
+        *outValue = env;
+        while(*env)
+            ++env;
+        
+        *outValueLength = (int)(env - (equal + 1));
+        return SYSTEM2_RESULT_SUCCESS;
+    }
+    
+    SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2EnvironmentVariableFreePosix(void** resource)
+    {
+        if(!resource)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
+        if(!(*resource))
+            return SYSTEM2_RESULT_SUCCESS;
+        
+        free(*resource);
+        *resource = NULL;
+        return SYSTEM2_RESULT_SUCCESS;
+    }
+#endif //defined(__unix__) || defined(__APPLE__)
 
 #if defined(_WIN32)
     #include <strsafe.h>
@@ -1027,6 +1168,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                                             outCommandInfo);
     }
     
+    //TODO: UTF-8 output?
     //TODO: Use peeknamedpipe to get number of bytes available before reading it 
     //      so that it doesn't block
     //https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-peeknamedpipe
@@ -1176,7 +1318,168 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         else
             return SYSTEM2_RESULT_SUCCESS;
     }
-#endif
+    
+    SYSTEM2_FUNC_PREFIX char* Internal_System2GetEnvStringWindows()
+    {
+        wchar_t* envStrings = GetEnvironmentStringsW();
+        wchar_t* envStringsStart = envStrings;
+        int strCount = 0;
+        
+        while(*envStrings != L'\0' || *(envStrings + 1) != L'\0')
+        {
+            ++strCount;
+            ++envStrings;
+        }
+        ++strCount;
+        
+        int requiredBytes = WideCharToMultiByte(CP_UTF8, 
+                                                0, 
+                                                envStringsStart, 
+                                                strCount, 
+                                                NULL, 
+                                                0, 
+                                                NULL, 
+                                                NULL);
+        if(requiredBytes <= 0)
+        {
+            FreeEnvironmentStringsW(envStringsStart);
+            return NULL;
+        }
+        
+        char* utf8EnvString = (char*)malloc(requiredBytes);
+        if(!utf8EnvString)
+        {
+            FreeEnvironmentStringsW(envStringsStart);
+            return NULL;
+        }
+        memset(utf8EnvString, 0, requiredBytes);
+        
+        int allocatedBytes = WideCharToMultiByte(   CP_UTF8, 
+                                                    0, 
+                                                    envStringsStart, 
+                                                    strCount, 
+                                                    utf8EnvString, 
+                                                    requiredBytes, 
+                                                    NULL, 
+                                                    NULL);
+        if(allocatedBytes <= 0)
+        {
+            FreeEnvironmentStringsW(envStringsStart);
+            free(utf8EnvString);
+            return NULL;
+        }
+        return utf8EnvString;
+    }
+    
+    SYSTEM2_FUNC_PREFIX 
+    SYSTEM2_RESULT System2GetEnvironmentVariablesCountWindows(int* outCount, void** outResource)
+    {
+        if(!outCount || !outResource)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
+        *outResource = NULL;
+        char* utf8EnvStringStart = Internal_System2GetEnvStringWindows();
+        if(!utf8EnvStringStart)
+            return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
+        
+        char* utf8EnvStrings = utf8EnvStringStart;
+        if(*utf8EnvStrings == '\0' && *(utf8EnvStrings + 1) == '\0')
+        {
+            *outCount = 0;
+            free(utf8EnvStringStart);
+            return SYSTEM2_RESULT_SUCCESS;
+        }
+        *outResource = utf8EnvStringStart;
+        *outCount = 0;
+        
+        /*
+        Each environment block contains the environment variables in the following format:
+
+        Var1=Value1\0
+        Var2=Value2\0
+        Var3=Value3\0
+        ...
+        VarN=ValueN\0\0
+        */
+        while(*utf8EnvStrings != '\0' || *(utf8EnvStrings + 1) != '\0')
+        {
+            if(*utf8EnvStrings == '\0')
+                ++(*outCount);
+            ++utf8EnvStrings;
+        }
+        
+        return SYSTEM2_RESULT_SUCCESS;
+    }
+    
+    SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetEnvironmentVariableWindows(const void* resource,
+                                                                            const char** outName,
+                                                                            int* outNameLength,
+                                                                            const char** outValue,
+                                                                            int* outValueLength,
+                                                                            int index)
+    {
+        if(!outName || !outNameLength || !outValue || !outValueLength || !resource)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
+        static const char* lastResource = NULL;
+        static int lastIndex = 0;
+        static char* lastEnv = NULL;
+        
+        bool canUseCache = resource == lastResource && lastEnv && index > lastIndex;
+        
+        const char* envStringsStart = resource;
+        char* envStrings = canUseCache ? lastEnv : (char*)envStringsStart;
+        int currentIndex = canUseCache ? lastIndex : 0;
+        
+        lastResource = resource;
+        do
+        {
+            if(currentIndex == index)
+            {
+                lastEnv = envStrings;
+                lastIndex = index;
+                
+                *outName = envStrings;
+                char* equal = envStrings;
+                while(equal)
+                {
+                    if(*equal == '=')
+                        break;
+                    ++equal;
+                }
+                *outNameLength = (int)(equal - envStrings);
+                
+                envStrings = equal + 1;
+                *outValue = envStrings;
+                while(*envStrings)
+                    ++envStrings;
+                
+                *outValueLength = (int)(envStrings - (equal + 1));
+                break;
+            }
+            
+            if(*envStrings == '\0')
+                ++currentIndex;
+            ++envStrings;
+        }
+        while(*envStrings != '\0' || *(envStrings + 1) != '\0');
+        
+        return SYSTEM2_RESULT_SUCCESS;
+    }
+    
+    SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2EnvironmentVariableFreeWindows(void** resource)
+    {
+        if(!resource)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
+        if(!(*resource))
+            return SYSTEM2_RESULT_SUCCESS;
+        
+        free(*resource);
+        *resource = NULL;
+        return SYSTEM2_RESULT_SUCCESS;
+    }
+#endif //defined(_WIN32)
 
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2Run(  const char* command, 
                                                 System2CommandInfo* inOutCommandInfo)
@@ -1267,6 +1570,55 @@ SYSTEM2_RESULT System2GetCommandReturnValueSync(const System2CommandInfo* info,
         return System2GetCommandReturnValueSyncWindows(info, outReturnCode, manualCleanup);
     #else
         return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM; 
+    #endif
+}
+
+SYSTEM2_FUNC_PREFIX 
+SYSTEM2_RESULT System2GetEnvironmentVariablesCount(int* outCount, void** outResource)
+{
+    #if defined(__unix__) || defined(__APPLE__)
+        return System2GetEnvironmentVariablesCountPosix(outCount, outResource);
+    #elif defined(_WIN32)
+        return System2GetEnvironmentVariablesCountWindows(outCount, outResource);
+    #else
+        return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM;
+    #endif
+}
+
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetEnvironmentVariable(   const void* resource,
+                                                                    const char** outName,
+                                                                    int* outNameLength,
+                                                                    const char** outValue,
+                                                                    int* outValueLength,
+                                                                    int index)
+{
+    #if defined(__unix__) || defined(__APPLE__)
+        return System2GetEnvironmentVariablePosix(  resource,
+                                                    outName, 
+                                                    outNameLength, 
+                                                    outValue, 
+                                                    outValueLength, 
+                                                    index);
+    #elif defined(_WIN32)
+        return System2GetEnvironmentVariableWindows(resource,
+                                                    outName, 
+                                                    outNameLength, 
+                                                    outValue, 
+                                                    outValueLength, 
+                                                    index);
+    #else
+        return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM;
+    #endif
+}
+
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2EnvironmentVariableFree(void** resource)
+{
+    #if defined(__unix__) || defined(__APPLE__)
+        return System2EnvironmentVariableFreePosix(resource);
+    #elif defined(_WIN32)
+        return System2EnvironmentVariableFreeWindows(resource);
+    #else
+        return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM;
     #endif
 }
 
