@@ -101,6 +101,7 @@ typedef enum
     SYSTEM2_RESULT_INVALID_ARGUMENT = -13,
     SYSTEM2_RESULT_MALLOC_FAILED = -14,
     SYSTEM2_RESULT_WINDOWS_UNICODE_FAILED = -15,
+    SYSTEM2_RESULT_WINDOWS_SET_ENV_FAILED = -16,
 } SYSTEM2_RESULT;
 
 /*
@@ -283,6 +284,25 @@ Could return the following result:
 - SYSTEM2_RESULT_INVALID_ARGUMENT
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2EnvironmentVariableFree(void** resource);
+
+/*
+Sets/unsets an environment variable where it is unset if `envValue` is `NULL`.
+`envName` must be valid for the platform otherwise this function will fail.
+
+If the environment variable with `envName` already exists when trying to set or not exists when 
+trying to unset, this function MIGHT fail depending on the platform.
+
+To make sure the environement variable is correctly set, you should get the environment variable.
+
+Could return the following result:
+- SYSTEM2_RESULT_SUCCESS
+- SYSTEM2_RESULT_INVALID_ARGUMENT
+- SYSTEM2_RESULT_WINDOWS_UNICODE_FAILED
+- SYSTEM2_RESULT_MALLOC_FAILED
+- SYSTEM2_RESULT_WINDOWS_SET_ENV_FAILED
+*/
+SYSTEM2_FUNC_PREFIX 
+SYSTEM2_RESULT System2SetEnvironmentVariable(const char* envName, const char* envValue);
 
 
 //============================================================
@@ -719,6 +739,28 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2EnvironmentVariableFree(void** resourc
         
         free(*resource);
         *resource = NULL;
+        return SYSTEM2_RESULT_SUCCESS;
+    }
+    
+    SYSTEM2_FUNC_PREFIX
+    SYSTEM2_RESULT System2SetEnvironmentVariablePosix(const char* envName, const char* envValue)
+    {
+        if(!envName)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
+        if(envValue)
+        {
+            int result = setenv(envName, envValue, 1);
+            if(result != 0)
+                return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        }
+        else
+        {
+            int result = unsetenv(envName);
+            if(result != 0)
+                return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        }
+        
         return SYSTEM2_RESULT_SUCCESS;
     }
 #endif //defined(__unix__) || defined(__APPLE__)
@@ -1465,6 +1507,56 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2EnvironmentVariableFree(void** resourc
         *resource = NULL;
         return SYSTEM2_RESULT_SUCCESS;
     }
+    
+    SYSTEM2_FUNC_PREFIX
+    SYSTEM2_RESULT System2SetEnvironmentVariableWindows(const char* envName, const char* envValue)
+    {
+        if(!envName)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
+        wchar_t* envNameW;
+        int envNameWLen;
+        SYSTEM2_RESULT result = Internal_System2Utf8ToUtf16(envName, 
+                                                            (int)strlen(envName) + 1, 
+                                                            &envNameW, 
+                                                            &envNameWLen);
+        if(result != SYSTEM2_RESULT_SUCCESS)
+            return result;
+        
+        if(envValue)
+        {
+            wchar_t* envValueW;
+            int envValueWLen;
+            result = Internal_System2Utf8ToUtf16(   envValue, 
+                                                    (int)strlen(envValue) + 1, 
+                                                    &envValueW, 
+                                                    &envValueWLen);
+            if(result != SYSTEM2_RESULT_SUCCESS)
+            {
+                free(envNameW);
+                return result;
+            }
+            
+            if(SetEnvironmentVariableW(envNameW, envValueW) == 0)
+            {
+                free(envNameW);
+                free(envValueW);
+                return SYSTEM2_RESULT_WINDOWS_SET_ENV_FAILED;
+            }
+            free(envValueW);
+        }
+        else
+        {
+            if(SetEnvironmentVariableW(envNameW, NULL) == 0)
+            {
+                free(envNameW);
+                return SYSTEM2_RESULT_WINDOWS_SET_ENV_FAILED;
+            }
+        }
+        
+        free(envNameW);
+        return SYSTEM2_RESULT_SUCCESS;
+    }
 #endif //defined(_WIN32)
 
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2Run(  const char* command, 
@@ -1603,6 +1695,18 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2EnvironmentVariableFree(void** resourc
         return System2EnvironmentVariableFreePosix(resource);
     #elif defined(_WIN32)
         return System2EnvironmentVariableFreeWindows(resource);
+    #else
+        return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM;
+    #endif
+}
+
+SYSTEM2_FUNC_PREFIX 
+SYSTEM2_RESULT System2SetEnvironmentVariable(const char* envName, const char* envValue)
+{
+    #if defined(__unix__) || defined(__APPLE__)
+        return System2SetEnvironmentVariablePosix(envName, envValue);
+    #elif defined(_WIN32)
+        return System2SetEnvironmentVariableWindows(envName, envValue);
     #else
         return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM;
     #endif

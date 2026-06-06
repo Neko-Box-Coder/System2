@@ -28,6 +28,7 @@ provide input to stdin and capture the output from stdout and stderr.
 - No dependencies (only standard C and system libraries).
     No longer need a heavy framework like boost or poco just to capture output from running a command.
 - Header only library (source version available as well)
+- Getting/Iterating and Setting environment variables
 - UTF-8 support\*
 - CMake integration
 
@@ -286,6 +287,25 @@ Could return the following result:
 - SYSTEM2_RESULT_INVALID_ARGUMENT
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2EnvironmentVariableFree(void** resource);
+
+/*
+Sets/unsets an environment variable where it is unset if `envValue` is `NULL`.
+`envName` must be valid for the platform otherwise this function will fail.
+
+If the environment variable with `envName` already exists when trying to set or not exists when 
+trying to unset, this function MIGHT fail depending on the platform.
+
+To make sure the environement variable is correctly set, you should get the environment variable.
+
+Could return the following result:
+- SYSTEM2_RESULT_SUCCESS
+- SYSTEM2_RESULT_INVALID_ARGUMENT
+- SYSTEM2_RESULT_WINDOWS_UNICODE_FAILED
+- SYSTEM2_RESULT_MALLOC_FAILED
+- SYSTEM2_RESULT_WINDOWS_SET_ENV_FAILED
+*/
+SYSTEM2_FUNC_PREFIX 
+SYSTEM2_RESULT System2SetEnvironmentVariable(const char* envName, const char* envValue);
 ```
 
 
