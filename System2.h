@@ -312,7 +312,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2EnvironmentVariableFree(void** resourc
         if(result != 0)
             return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
 
-        const char** nullTerminatedArgs = (const char**)malloc(sizeof(char**) * (argsCount + 1));
+        const char** nullTerminatedArgs = calloc(argsCount + 1, sizeof(char**));
         if(nullTerminatedArgs == NULL)
             return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
         
@@ -986,7 +986,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2EnvironmentVariableFree(void** resourc
             //Calculating final command count
             int finalCommandSize = 0;
             
-            const char** concatedArgs = (const char**)malloc(sizeof(char*) * (argsCount + 1));
+            const char** concatedArgs = calloc(argsCount + 1, sizeof(char*));
             concatedArgs[0] = executable;
             for(int i = 0; i < argsCount; ++i)
                 concatedArgs[i + 1] = args[i];
@@ -1040,7 +1040,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2EnvironmentVariableFree(void** resourc
                     return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
                 }
                 
-                commandCopyWide = (wchar_t*)malloc(wideCommandSize * sizeof(wchar_t));
+                commandCopyWide = calloc(wideCommandSize, sizeof(wchar_t));
                 if(commandCopyWide == NULL)
                 {
                     free(commandCopy);
@@ -1080,7 +1080,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2EnvironmentVariableFree(void** resourc
                     return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
                 }
                 
-                workingDirectoryWide = (wchar_t*)malloc(wideWorkingWideDirSize * sizeof(wchar_t));
+                workingDirectoryWide = calloc(wideWorkingWideDirSize, sizeof(wchar_t));
                 if(workingDirectoryWide == NULL)
                 {
                     free(commandCopy);
