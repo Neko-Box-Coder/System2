@@ -97,7 +97,9 @@ typedef enum
     SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED = -9,
     SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DESTROY_FAILED = -10,
     SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DUP2_FAILED = -11,
-    SYSTEM2_RESULT_POSIX_SPAWN_RUN_DIRECTORY_NOT_SUPPORTED = -12
+    SYSTEM2_RESULT_POSIX_SPAWN_RUN_DIRECTORY_NOT_SUPPORTED = -12,
+    SYSTEM2_RESULT_INVALID_ARGUMENT = -13,
+    SYSTEM2_RESULT_MALLOC_FAILED = -14
 } SYSTEM2_RESULT;
 
 /*
@@ -108,7 +110,7 @@ This uses
 `sh -c command` for POSIX and
 `cmd /s /v /c command` for Windows
 
-Could return the follow result:
+Could return the following result:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_PIPE_CREATE_FAILED
 - SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED
@@ -117,6 +119,7 @@ Could return the follow result:
 - SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DESTROY_FAILED
 - SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DUP2_FAILED
 - SYSTEM2_RESULT_POSIX_SPAWN_RUN_DIRECTORY_NOT_SUPPORTED
+- SYSTEM2_RESULT_INVALID_ARGUMENT
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2Run(  const char* command, 
                                                 System2CommandInfo* inOutCommandInfo);
@@ -127,7 +130,7 @@ Runs the executable (which can search in PATH env variable) with the given argum
 
 On Windows, automatic escaping can be removed by setting the `DisableEscape` in `inOutCommandInfo`
 
-Could return the follow result:
+Could return the following result:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_PIPE_CREATE_FAILED
 - SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED
@@ -136,6 +139,7 @@ Could return the follow result:
 - SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DESTROY_FAILED
 - SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DUP2_FAILED
 - SYSTEM2_RESULT_POSIX_SPAWN_RUN_DIRECTORY_NOT_SUPPORTED
+- SYSTEM2_RESULT_INVALID_ARGUMENT
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2RunSubprocess(const char* executable,
                                                         const char* const* args,
@@ -152,10 +156,11 @@ this function can be called again until SYSTEM2_RESULT_SUCCESS to retrieve the r
 
 outBytesRead determines how many bytes have been read for **this** function call
 
-Could return the follow result:
+Could return the following result:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_READ_NOT_FINISHED
 - SYSTEM2_RESULT_READ_FAILED
+- SYSTEM2_RESULT_INVALID_ARGUMENT
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2ReadFromOutput(   const System2CommandInfo* info, 
                                                             char* outputBuffer, 
@@ -165,9 +170,10 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2ReadFromOutput(   const System2Command
 /*
 Write the input (stdin) to the command. 
 
-Could return the follow result:
+Could return the following result:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_WRITE_FAILED
+- SYSTEM2_RESULT_INVALID_ARGUMENT
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2WriteToInput( const System2CommandInfo* info, 
                                                         const char* inputBuffer, 
@@ -180,9 +186,10 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2WriteToInput( const System2CommandInfo
 /*
 Cleanup any open handles associated with the command.
 
-Could return the follow result:
+Could return the following result:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED
+- SYSTEM2_RESULT_INVALID_ARGUMENT
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2CleanupCommand(const System2CommandInfo* info);
 
@@ -195,12 +202,13 @@ If `manualCleanup` is false,
 
 Otherwise, `System2CleanupCommand()` should be called when the command has exited.
 
-Could return the follow result:
+Could return the following result:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_COMMAND_NOT_FINISHED
 - SYSTEM2_RESULT_COMMAND_TERMINATED
 - SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED
 - SYSTEM2_RESULT_COMMAND_WAIT_ASYNC_FAILED
+- SYSTEM2_RESULT_INVALID_ARGUMENT
 */
 SYSTEM2_FUNC_PREFIX 
 SYSTEM2_RESULT System2GetCommandReturnValueAsync(   const System2CommandInfo* info, 
@@ -215,15 +223,57 @@ If `manualCleanup` is false,
 
 Otherwise, `System2CleanupCommand()` should be called when the command has exited.
 
-Could return the follow result:
+Could return the following result:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_COMMAND_TERMINATED
 - SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED
 - SYSTEM2_RESULT_COMMAND_WAIT_SYNC_FAILED
+- SYSTEM2_RESULT_INVALID_ARGUMENT
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System2CommandInfo* info, 
                                                                     int* outReturnCode,
                                                                     bool manualCleanup);
+
+/*
+Returns the count of environment variables, along with a resource handle which can be used to 
+access the environment variable values with `System2GetEnvironmentVariables()`.
+
+The resource handle should be freed with `System2EnvironmentVariableFree()` when done.
+
+Could return the following result:
+- SYSTEM2_RESULT_SUCCESS
+- SYSTEM2_RESULT_INVALID_ARGUMENT
+- SYSTEM2_RESULT_MALLOC_FAILED
+*/
+SYSTEM2_FUNC_PREFIX 
+SYSTEM2_RESULT System2GetEnvironmentVariablesCount(int* outCount, void** outResource);
+
+/*
+Returns the environment variable name and value for a given index. The behavior is undefined if 
+trying to index an environment variable outside of bound.
+
+The content of the returned environment name and value should be copied to a local buffer 
+immediately as changes to the environment variable might invalidate them.
+
+Could return the following result:
+- SYSTEM2_RESULT_SUCCESS
+- SYSTEM2_RESULT_INVALID_ARGUMENT
+*/
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetEnvironmentVariable(   const void* resource,
+                                                                    const char** outName,
+                                                                    int* outNameLength,
+                                                                    const char** outValue,
+                                                                    int* outValueLength,
+                                                                    int index);
+
+/*
+Free the resource handle created by `System2GetEnvironmentVariablesCount()` and set it to NULL.
+
+Could return the following result:
+- SYSTEM2_RESULT_SUCCESS
+- SYSTEM2_RESULT_INVALID_ARGUMENT
+*/
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2EnvironmentVariableFree(void** resource);
 
 
 //============================================================
@@ -237,12 +287,12 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
 
 #if defined(__unix__) || defined(__APPLE__)
     #include <sys/wait.h>
+    extern char** environ;
     
     //This bypasses inheriting memory from parent process (glibc 2.24) but removes the rundir feature
     //#define SYSTEM2_POSIX_SPAWN 1
     #if defined(SYSTEM2_POSIX_SPAWN) && SYSTEM2_POSIX_SPAWN != 0
         #include <spawn.h>
-        extern char **environ;
     #endif
 
     SYSTEM2_FUNC_PREFIX 
@@ -251,6 +301,9 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                                                 int argsCount,
                                                 System2CommandInfo* inOutCommandInfo)
     {
+        if(!executable || !args || !inOutCommandInfo)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
         int result = pipe(inOutCommandInfo->ParentToChildPipes);
         if(result != 0)
             return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
@@ -259,7 +312,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         if(result != 0)
             return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
 
-        const char** nullTerminatedArgs = (const char**)malloc(sizeof(char**) * (argsCount + 1));
+        const char** nullTerminatedArgs = calloc(argsCount + 1, sizeof(char**));
         if(nullTerminatedArgs == NULL)
             return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
         
@@ -435,6 +488,9 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                                                                     uint32_t outputBufferSize,
                                                                     uint32_t* outBytesRead)
     {
+        if(!info || !outputBuffer || !outBytesRead)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
         int32_t readResult;
         *outBytesRead = 0;
         
@@ -464,6 +520,9 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                                                                 const char* inputBuffer, 
                                                                 const uint32_t inputBufferSize)
     {
+        if(!info || !inputBuffer)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
         uint32_t currentWriteLengthLeft = inputBufferSize;
         
         while(true)
@@ -487,6 +546,9 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
     
     SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2CleanupCommandPosix(const System2CommandInfo* info)
     {
+        if(!info)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+
         if(close(info->ChildToParentPipes[SYSTEM2_FD_READ]) != 0)
             return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
 
@@ -501,6 +563,9 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                                                             int* outReturnCode,
                                                             bool manualCleanup)
     {
+        if(!info || !outReturnCode)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
         int status;
         pid_t pidResult = waitpid(info->ChildProcessID, &status, WNOHANG);
         
@@ -527,6 +592,9 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                                                             int* outReturnCode,
                                                             bool manualCleanup)
     {
+        if(!info || !outReturnCode)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
         int status;
         pid_t pidResult = waitpid(info->ChildProcessID, &status, 0);
         
@@ -545,7 +613,106 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         *outReturnCode = WEXITSTATUS(status);
         return SYSTEM2_RESULT_SUCCESS;
     }
-#endif
+    
+    typedef struct
+    {
+        char** Envs;
+        int EnvsLength;
+    } System2EnvVarInfoPosix;
+    
+    SYSTEM2_FUNC_PREFIX 
+    SYSTEM2_RESULT System2GetEnvironmentVariablesCountPosix(int* outCount, void** outResource)
+    {
+        if(!outCount || !outResource)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
+        *outResource = NULL;
+        *outCount = 0;
+        while(environ[*outCount])
+            ++(*outCount);
+        
+        System2EnvVarInfoPosix* info = calloc(1, sizeof(System2EnvVarInfoPosix));
+        if(!info)
+            return SYSTEM2_RESULT_MALLOC_FAILED;
+        
+        info->Envs = calloc(*outCount, sizeof(char*));
+        if(!info->Envs)
+        {
+            free(info);
+            return SYSTEM2_RESULT_MALLOC_FAILED;
+        }
+        
+        info->EnvsLength = *outCount;
+        int i;
+        for(i = 0; i < *outCount; ++i)
+        {
+            int memNeeded = strlen(environ[i]) + 1;
+            char* envVar = (char*)malloc(memNeeded);
+            if(!envVar)
+                break;
+            
+            memcpy(envVar, environ[i], memNeeded);
+            info->Envs[i] = envVar;
+        }
+        
+        //Failed to allocate for all of the env strings
+        if(i != *outCount)
+        {
+            for(int j = 0; j < i; ++j)
+                free(info->Envs[j]);
+            
+            free(info->Envs);
+            free(info);
+            return SYSTEM2_RESULT_MALLOC_FAILED;
+        }
+        
+        *outResource = info;
+        return SYSTEM2_RESULT_SUCCESS;
+    }
+    
+    SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetEnvironmentVariablePosix(  const void* resource,
+                                                                            const char** outName,
+                                                                            int* outNameLength,
+                                                                            const char** outValue,
+                                                                            int* outValueLength,
+                                                                            int index)
+    {
+        if(!outName || !outNameLength || !outValue || !outValueLength || !resource)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
+        char* env = ((System2EnvVarInfoPosix*)resource)->Envs[index];
+        *outName = env;
+        char* equal = env;
+        while(equal)
+        {
+            if(*equal == '=')
+                break;
+            ++equal;
+        }
+        *outNameLength = (int)(equal - env);
+        
+        env = equal + 1;
+        *outValue = env;
+        while(*env)
+            ++env;
+        
+        *outValueLength = (int)(env - (equal + 1));
+        return SYSTEM2_RESULT_SUCCESS;
+    }
+    
+    SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2EnvironmentVariableFreePosix(void** resource)
+    {
+        if(!resource)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
+        if(!(*resource))
+            return SYSTEM2_RESULT_SUCCESS;
+        
+        free(*resource);
+        *resource = NULL;
+        return SYSTEM2_RESULT_SUCCESS;
+    }
+#endif //defined(__unix__) || defined(__APPLE__)
 
 #if defined(_WIN32)
     #include <strsafe.h>
@@ -745,6 +912,9 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                                                 int argsCount,
                                                 System2CommandInfo* inOutCommandInfo)
     {
+        if(!executable || !args || !inOutCommandInfo)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
         // Set the write handle to the pipe for STDOUT to be inherited.
         if(inOutCommandInfo->RedirectOutput)
         {
@@ -816,7 +986,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
             //Calculating final command count
             int finalCommandSize = 0;
             
-            const char** concatedArgs = (const char**)malloc(sizeof(char*) * (argsCount + 1));
+            const char** concatedArgs = calloc(argsCount + 1, sizeof(char*));
             concatedArgs[0] = executable;
             for(int i = 0; i < argsCount; ++i)
                 concatedArgs[i + 1] = args[i];
@@ -870,7 +1040,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                     return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
                 }
                 
-                commandCopyWide = (wchar_t*)malloc(wideCommandSize * sizeof(wchar_t));
+                commandCopyWide = calloc(wideCommandSize, sizeof(wchar_t));
                 if(commandCopyWide == NULL)
                 {
                     free(commandCopy);
@@ -910,7 +1080,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                     return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
                 }
                 
-                workingDirectoryWide = (wchar_t*)malloc(wideWorkingWideDirSize * sizeof(wchar_t));
+                workingDirectoryWide = calloc(wideWorkingWideDirSize, sizeof(wchar_t));
                 if(workingDirectoryWide == NULL)
                 {
                     free(commandCopy);
@@ -998,6 +1168,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                                             outCommandInfo);
     }
     
+    //TODO: UTF-8 output?
     //TODO: Use peeknamedpipe to get number of bytes available before reading it 
     //      so that it doesn't block
     //https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-peeknamedpipe
@@ -1006,6 +1177,9 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                                                                     uint32_t outputBufferSize,
                                                                     uint32_t* outBytesRead)
     {
+        if(!info || !outputBuffer || !outBytesRead)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
         DWORD readResult;
         BOOL bSuccess;
         *outBytesRead = 0;
@@ -1042,6 +1216,9 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                                                                     const char* inputBuffer, 
                                                                     const uint32_t inputBufferSize)
     {
+        if(!info || !inputBuffer)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
         DWORD currentWriteLengthLeft = inputBufferSize;
         BOOL bSuccess;
 
@@ -1070,6 +1247,9 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
     
     SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2CleanupCommandWindows(const System2CommandInfo* info)
     {
+        if(!info)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
         if(info->RedirectOutput)
         {
             if(!CloseHandle(info->ChildToParentPipes[SYSTEM2_FD_READ]))
@@ -1091,6 +1271,9 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                                                             int* outReturnCode,
                                                             bool manualCleanup)
     {
+        if(!info || !outReturnCode)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
         DWORD exitCode;
         if(!GetExitCodeProcess(info->ChildProcessHandle, &exitCode))
             return SYSTEM2_RESULT_COMMAND_WAIT_ASYNC_FAILED;
@@ -1114,6 +1297,9 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                                                             int* outReturnCode,
                                                             bool manualCleanup)
     {
+        if(!info || !outReturnCode)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
         if(WaitForSingleObject(info->ChildProcessHandle, INFINITE) != 0)
             return SYSTEM2_RESULT_COMMAND_WAIT_SYNC_FAILED;
         
@@ -1132,7 +1318,168 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
         else
             return SYSTEM2_RESULT_SUCCESS;
     }
-#endif
+    
+    SYSTEM2_FUNC_PREFIX char* Internal_System2GetEnvStringWindows()
+    {
+        wchar_t* envStrings = GetEnvironmentStringsW();
+        wchar_t* envStringsStart = envStrings;
+        int strCount = 0;
+        
+        while(*envStrings != L'\0' || *(envStrings + 1) != L'\0')
+        {
+            ++strCount;
+            ++envStrings;
+        }
+        ++strCount;
+        
+        int requiredBytes = WideCharToMultiByte(CP_UTF8, 
+                                                0, 
+                                                envStringsStart, 
+                                                strCount, 
+                                                NULL, 
+                                                0, 
+                                                NULL, 
+                                                NULL);
+        if(requiredBytes <= 0)
+        {
+            FreeEnvironmentStringsW(envStringsStart);
+            return NULL;
+        }
+        
+        char* utf8EnvString = (char*)malloc(requiredBytes);
+        if(!utf8EnvString)
+        {
+            FreeEnvironmentStringsW(envStringsStart);
+            return NULL;
+        }
+        memset(utf8EnvString, 0, requiredBytes);
+        
+        int allocatedBytes = WideCharToMultiByte(   CP_UTF8, 
+                                                    0, 
+                                                    envStringsStart, 
+                                                    strCount, 
+                                                    utf8EnvString, 
+                                                    requiredBytes, 
+                                                    NULL, 
+                                                    NULL);
+        if(allocatedBytes <= 0)
+        {
+            FreeEnvironmentStringsW(envStringsStart);
+            free(utf8EnvString);
+            return NULL;
+        }
+        return utf8EnvString;
+    }
+    
+    SYSTEM2_FUNC_PREFIX 
+    SYSTEM2_RESULT System2GetEnvironmentVariablesCountWindows(int* outCount, void** outResource)
+    {
+        if(!outCount || !outResource)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
+        *outResource = NULL;
+        char* utf8EnvStringStart = Internal_System2GetEnvStringWindows();
+        if(!utf8EnvStringStart)
+            return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
+        
+        char* utf8EnvStrings = utf8EnvStringStart;
+        if(*utf8EnvStrings == '\0' && *(utf8EnvStrings + 1) == '\0')
+        {
+            *outCount = 0;
+            free(utf8EnvStringStart);
+            return SYSTEM2_RESULT_SUCCESS;
+        }
+        *outResource = utf8EnvStringStart;
+        *outCount = 0;
+        
+        /*
+        Each environment block contains the environment variables in the following format:
+
+        Var1=Value1\0
+        Var2=Value2\0
+        Var3=Value3\0
+        ...
+        VarN=ValueN\0\0
+        */
+        while(*utf8EnvStrings != '\0' || *(utf8EnvStrings + 1) != '\0')
+        {
+            if(*utf8EnvStrings == '\0')
+                ++(*outCount);
+            ++utf8EnvStrings;
+        }
+        
+        return SYSTEM2_RESULT_SUCCESS;
+    }
+    
+    SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetEnvironmentVariableWindows(const void* resource,
+                                                                            const char** outName,
+                                                                            int* outNameLength,
+                                                                            const char** outValue,
+                                                                            int* outValueLength,
+                                                                            int index)
+    {
+        if(!outName || !outNameLength || !outValue || !outValueLength || !resource)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
+        static const char* lastResource = NULL;
+        static int lastIndex = 0;
+        static char* lastEnv = NULL;
+        
+        bool canUseCache = resource == lastResource && lastEnv && index > lastIndex;
+        
+        const char* envStringsStart = resource;
+        char* envStrings = canUseCache ? lastEnv : (char*)envStringsStart;
+        int currentIndex = canUseCache ? lastIndex : 0;
+        
+        lastResource = resource;
+        do
+        {
+            if(currentIndex == index)
+            {
+                lastEnv = envStrings;
+                lastIndex = index;
+                
+                *outName = envStrings;
+                char* equal = envStrings;
+                while(equal)
+                {
+                    if(*equal == '=')
+                        break;
+                    ++equal;
+                }
+                *outNameLength = (int)(equal - envStrings);
+                
+                envStrings = equal + 1;
+                *outValue = envStrings;
+                while(*envStrings)
+                    ++envStrings;
+                
+                *outValueLength = (int)(envStrings - (equal + 1));
+                break;
+            }
+            
+            if(*envStrings == '\0')
+                ++currentIndex;
+            ++envStrings;
+        }
+        while(*envStrings != '\0' || *(envStrings + 1) != '\0');
+        
+        return SYSTEM2_RESULT_SUCCESS;
+    }
+    
+    SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2EnvironmentVariableFreeWindows(void** resource)
+    {
+        if(!resource)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
+        if(!(*resource))
+            return SYSTEM2_RESULT_SUCCESS;
+        
+        free(*resource);
+        *resource = NULL;
+        return SYSTEM2_RESULT_SUCCESS;
+    }
+#endif //defined(_WIN32)
 
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2Run(  const char* command, 
                                                 System2CommandInfo* inOutCommandInfo)
@@ -1226,6 +1573,55 @@ SYSTEM2_RESULT System2GetCommandReturnValueSync(const System2CommandInfo* info,
     #endif
 }
 
+SYSTEM2_FUNC_PREFIX 
+SYSTEM2_RESULT System2GetEnvironmentVariablesCount(int* outCount, void** outResource)
+{
+    #if defined(__unix__) || defined(__APPLE__)
+        return System2GetEnvironmentVariablesCountPosix(outCount, outResource);
+    #elif defined(_WIN32)
+        return System2GetEnvironmentVariablesCountWindows(outCount, outResource);
+    #else
+        return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM;
+    #endif
+}
+
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetEnvironmentVariable(   const void* resource,
+                                                                    const char** outName,
+                                                                    int* outNameLength,
+                                                                    const char** outValue,
+                                                                    int* outValueLength,
+                                                                    int index)
+{
+    #if defined(__unix__) || defined(__APPLE__)
+        return System2GetEnvironmentVariablePosix(  resource,
+                                                    outName, 
+                                                    outNameLength, 
+                                                    outValue, 
+                                                    outValueLength, 
+                                                    index);
+    #elif defined(_WIN32)
+        return System2GetEnvironmentVariableWindows(resource,
+                                                    outName, 
+                                                    outNameLength, 
+                                                    outValue, 
+                                                    outValueLength, 
+                                                    index);
+    #else
+        return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM;
+    #endif
+}
+
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2EnvironmentVariableFree(void** resource)
+{
+    #if defined(__unix__) || defined(__APPLE__)
+        return System2EnvironmentVariableFreePosix(resource);
+    #elif defined(_WIN32)
+        return System2EnvironmentVariableFreeWindows(resource);
+    #else
+        return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM;
+    #endif
+}
+
 
 #if defined(_WIN32)
     #if INTERNAL_SYSTEM2_APPLY_NO_WARNINGS
@@ -1233,10 +1629,8 @@ SYSTEM2_RESULT System2GetCommandReturnValueSync(const System2CommandInfo* info,
     #endif
 #endif
 
-//SYSTEM2_DECLARATION_ONLY
-#endif
+#endif //#if !SYSTEM2_DECLARATION_ONLY
 
-//SYSTEM2_H
-#endif 
+#endif //#ifndef SYSTEM2_H
 
 

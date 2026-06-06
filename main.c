@@ -95,6 +95,35 @@ void StdinStdoutExample(void)
     printf("%s: %d\n", "Command has executed with return value", returnCode);
 }
 
+void ReadEnvVarsExample(void)
+{
+    int envVarsCount = 0;
+    void* resource;
+    SYSTEM2_RESULT result = System2GetEnvironmentVariablesCount(&envVarsCount, &resource);
+    EXIT_IF_FAILED(result);
+    
+    for(int i = 0; i < envVarsCount; ++i)
+    {
+        const char* envName;
+        int envNameLength;
+        const char* envValue;
+        int envValueLength;
+        
+        result = System2GetEnvironmentVariable( resource,
+                                                &envName, 
+                                                &envNameLength, 
+                                                &envValue, 
+                                                &envValueLength,
+                                                i);
+        EXIT_IF_FAILED(result);
+    
+        printf("[%d] %.*s: %.*s\n", i, envNameLength, envName, envValueLength, envValue);
+    }
+    
+    result = System2EnvironmentVariableFree(&resource);
+    EXIT_IF_FAILED(result);
+}
+
 int main(int argc, char** argv) 
 {
     (void)argc;
@@ -153,6 +182,8 @@ int main(int argc, char** argv)
     #if SYSTEM2_TEST_MEMORY
         free(testMem);
     #endif
+    
+    ReadEnvVarsExample();
     
     return 0;
 }
