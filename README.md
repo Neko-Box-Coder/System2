@@ -144,6 +144,8 @@ Could return the following result:
 - SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DUP2_FAILED
 - SYSTEM2_RESULT_POSIX_SPAWN_RUN_DIRECTORY_NOT_SUPPORTED
 - SYSTEM2_RESULT_INVALID_ARGUMENT
+- SYSTEM2_RESULT_WINDOWS_UNICODE_FAILED
+- SYSTEM2_RESULT_MALLOC_FAILED
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2RunSubprocess(const char* executable,
                                                         const char* const* args,
