@@ -341,7 +341,7 @@ SYSTEM2_RESULT System2SetEnvironmentVariable(const char* envName, const char* en
         if(result != 0)
             return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
 
-        const char** nullTerminatedArgs = calloc(argsCount + 1, sizeof(char**));
+        const char** nullTerminatedArgs = (const char**)calloc(argsCount + 1, sizeof(char*));
         if(nullTerminatedArgs == NULL)
             return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
         
@@ -660,11 +660,12 @@ SYSTEM2_RESULT System2SetEnvironmentVariable(const char* envName, const char* en
         while(environ[*outCount])
             ++(*outCount);
         
-        System2EnvVarInfoPosix* info = calloc(1, sizeof(System2EnvVarInfoPosix));
+        System2EnvVarInfoPosix* info = 
+            (System2EnvVarInfoPosix*)calloc(1, sizeof(System2EnvVarInfoPosix));
         if(!info)
             return SYSTEM2_RESULT_MALLOC_FAILED;
         
-        info->Envs = calloc(*outCount, sizeof(char*));
+        info->Envs = (char**)calloc(*outCount, sizeof(char*));
         if(!info->Envs)
         {
             free(info);
@@ -967,7 +968,7 @@ SYSTEM2_RESULT System2SetEnvironmentVariable(const char* envName, const char* en
         if(wLen <= 0)
             return SYSTEM2_RESULT_WINDOWS_UNICODE_FAILED;
         
-        wchar_t* w = calloc(wLen, sizeof(wchar_t));
+        wchar_t* w = (wchar_t*)calloc(wLen, sizeof(wchar_t));
         if(!w)
             return SYSTEM2_RESULT_MALLOC_FAILED;
         
@@ -1064,7 +1065,7 @@ SYSTEM2_RESULT System2SetEnvironmentVariable(const char* envName, const char* en
             //Calculating final command count
             int finalCommandSize = 0;
             
-            const char** concatedArgs = calloc(argsCount + 1, sizeof(char*));
+            const char** concatedArgs = (const char**)calloc(argsCount + 1, sizeof(char*));
             concatedArgs[0] = executable;
             for(int i = 0; i < argsCount; ++i)
                 concatedArgs[i + 1] = args[i];
