@@ -246,6 +246,9 @@ access the environment variable values with `System2GetEnvironmentVariables()`.
 
 The resource handle should be freed with `System2EnvironmentVariableFree()` when done.
 
+NOTE: If you need to get a particular environment variable without iteration, use `getenv()` from the
+      standard library.
+
 Could return the following result:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_INVALID_ARGUMENT
@@ -260,6 +263,9 @@ trying to index an environment variable outside of bound.
 
 The content of the returned environment name and value should be copied to a local buffer 
 immediately as changes to the environment variable might invalidate them.
+
+NOTE: If you need to get a particular environment variable without iteration, use `getenv()` from the
+      standard library.
 
 Could return the following result:
 - SYSTEM2_RESULT_SUCCESS
