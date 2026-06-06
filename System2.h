@@ -99,7 +99,9 @@ typedef enum
     SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DUP2_FAILED = -11,
     SYSTEM2_RESULT_POSIX_SPAWN_RUN_DIRECTORY_NOT_SUPPORTED = -12,
     SYSTEM2_RESULT_INVALID_ARGUMENT = -13,
-    SYSTEM2_RESULT_MALLOC_FAILED = -14
+    SYSTEM2_RESULT_MALLOC_FAILED = -14,
+    SYSTEM2_RESULT_WINDOWS_UNICODE_FAILED = -15,
+    SYSTEM2_RESULT_WINDOWS_SET_ENV_FAILED = -16,
 } SYSTEM2_RESULT;
 
 /*
@@ -140,6 +142,8 @@ Could return the following result:
 - SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DUP2_FAILED
 - SYSTEM2_RESULT_POSIX_SPAWN_RUN_DIRECTORY_NOT_SUPPORTED
 - SYSTEM2_RESULT_INVALID_ARGUMENT
+- SYSTEM2_RESULT_WINDOWS_UNICODE_FAILED
+- SYSTEM2_RESULT_MALLOC_FAILED
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2RunSubprocess(const char* executable,
                                                         const char* const* args,
@@ -240,6 +244,9 @@ access the environment variable values with `System2GetEnvironmentVariables()`.
 
 The resource handle should be freed with `System2EnvironmentVariableFree()` when done.
 
+NOTE: If you need to get a particular environment variable without iteration, use `getenv()` from the
+      standard library.
+
 Could return the following result:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_INVALID_ARGUMENT
@@ -254,6 +261,9 @@ trying to index an environment variable outside of bound.
 
 The content of the returned environment name and value should be copied to a local buffer 
 immediately as changes to the environment variable might invalidate them.
+
+NOTE: If you need to get a particular environment variable without iteration, use `getenv()` from the
+      standard library.
 
 Could return the following result:
 - SYSTEM2_RESULT_SUCCESS
@@ -274,6 +284,25 @@ Could return the following result:
 - SYSTEM2_RESULT_INVALID_ARGUMENT
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2EnvironmentVariableFree(void** resource);
+
+/*
+Sets/unsets an environment variable where it is unset if `envValue` is `NULL`.
+`envName` must be valid for the platform otherwise this function will fail.
+
+If the environment variable with `envName` already exists when trying to set or not exists when 
+trying to unset, this function MIGHT fail depending on the platform.
+
+To make sure the environement variable is correctly set, you should get the environment variable.
+
+Could return the following result:
+- SYSTEM2_RESULT_SUCCESS
+- SYSTEM2_RESULT_INVALID_ARGUMENT
+- SYSTEM2_RESULT_WINDOWS_UNICODE_FAILED
+- SYSTEM2_RESULT_MALLOC_FAILED
+- SYSTEM2_RESULT_WINDOWS_SET_ENV_FAILED
+*/
+SYSTEM2_FUNC_PREFIX 
+SYSTEM2_RESULT System2SetEnvironmentVariable(const char* envName, const char* envValue);
 
 
 //============================================================
@@ -712,6 +741,28 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2EnvironmentVariableFree(void** resourc
         *resource = NULL;
         return SYSTEM2_RESULT_SUCCESS;
     }
+    
+    SYSTEM2_FUNC_PREFIX
+    SYSTEM2_RESULT System2SetEnvironmentVariablePosix(const char* envName, const char* envValue)
+    {
+        if(!envName)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
+        if(envValue)
+        {
+            int result = setenv(envName, envValue, 1);
+            if(result != 0)
+                return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        }
+        else
+        {
+            int result = unsetenv(envName);
+            if(result != 0)
+                return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        }
+        
+        return SYSTEM2_RESULT_SUCCESS;
+    }
 #endif //defined(__unix__) || defined(__APPLE__)
 
 #if defined(_WIN32)
@@ -906,6 +957,33 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2EnvironmentVariableFree(void** resourc
         return (int)currentIndex;
     }
     
+    SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT 
+    Internal_System2Utf8ToUtf16(const char* utf8, int inLen, wchar_t** outUtf16, int* outLen)
+    {
+        if(!utf8 || !outUtf16 || !outLen)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
+        int wLen = MultiByteToWideChar(CP_UTF8, 0, utf8, inLen, NULL, 0);
+        if(wLen <= 0)
+            return SYSTEM2_RESULT_WINDOWS_UNICODE_FAILED;
+        
+        wchar_t* w = calloc(wLen, sizeof(wchar_t));
+        if(!w)
+            return SYSTEM2_RESULT_MALLOC_FAILED;
+        
+        wLen = MultiByteToWideChar(CP_UTF8, 0, utf8, inLen, w, wLen);
+        if(wLen <= 0)
+        {
+            free(w);
+            return SYSTEM2_RESULT_WINDOWS_UNICODE_FAILED;
+        }
+        
+        *outUtf16 = w;
+        *outLen = wLen;
+        return SYSTEM2_RESULT_SUCCESS;
+    }
+    
+    
     SYSTEM2_FUNC_PREFIX 
     SYSTEM2_RESULT System2RunSubprocessWindows( const char* executable,
                                                 const char* const* args,
@@ -1028,79 +1106,32 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2EnvironmentVariableFree(void** resourc
             }
             
             //Construct final command
+            int wideCommandSize = 0;
             wchar_t* commandCopyWide = NULL;
+            SYSTEM2_RESULT result = Internal_System2Utf8ToUtf16(commandCopy, 
+                                                                finalCommandSize,
+                                                                &commandCopyWide,
+                                                                &wideCommandSize);
+            if(result != SYSTEM2_RESULT_SUCCESS)
+                return result;
             
-            //Convert final command to wide chars
-            {
-                int wideCommandSize = MultiByteToWideChar(CP_UTF8, 0, commandCopy, -1, NULL, 0);
-                
-                if(wideCommandSize <= 0)
-                {
-                    free(commandCopy);
-                    return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
-                }
-                
-                commandCopyWide = calloc(wideCommandSize, sizeof(wchar_t));
-                if(commandCopyWide == NULL)
-                {
-                    free(commandCopy);
-                    return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
-                }
-                
-                wideCommandSize = MultiByteToWideChar(  CP_UTF8, 
-                                                        0, 
-                                                        commandCopy, 
-                                                        -1, 
-                                                        commandCopyWide, 
-                                                        wideCommandSize);
-                
-                if(wideCommandSize <= 0)
-                {
-                    free(commandCopy);
-                    free(commandCopyWide);
-                    return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
-                }
-            }
+            free(commandCopy);
             
             //Convert working directory to wide chars
             wchar_t* workingDirectoryWide = NULL;
+            int wideWorkingWideDirSize = 0;
             if(inOutCommandInfo->RunDirectory != NULL)
             {
-                int wideWorkingWideDirSize = MultiByteToWideChar(   CP_UTF8, 
-                                                                    0, 
-                                                                    inOutCommandInfo->RunDirectory, 
-                                                                    -1, 
-                                                                    NULL, 
-                                                                    0);
+                result = 
+                    Internal_System2Utf8ToUtf16(inOutCommandInfo->RunDirectory, 
+                                                (int)strlen(inOutCommandInfo->RunDirectory) + 1,
+                                                &workingDirectoryWide,
+                                                &wideWorkingWideDirSize);
                 
-                if(wideWorkingWideDirSize <= 0)
+                if(result != SYSTEM2_RESULT_SUCCESS)
                 {
-                    free(commandCopy);
                     free(commandCopyWide);
-                    return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
-                }
-                
-                workingDirectoryWide = calloc(wideWorkingWideDirSize, sizeof(wchar_t));
-                if(workingDirectoryWide == NULL)
-                {
-                    free(commandCopy);
-                    free(commandCopyWide);
-                    return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
-                }
-                
-                wideWorkingWideDirSize = MultiByteToWideChar(   CP_UTF8, 
-                                                                0, 
-                                                                inOutCommandInfo->RunDirectory, 
-                                                                -1, 
-                                                                workingDirectoryWide, 
-                                                                wideWorkingWideDirSize);
-                
-                if(wideWorkingWideDirSize <= 0)
-                {
-                    free(commandCopy);
-                    free(commandCopyWide);
-                    free(workingDirectoryWide);
-                    return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
+                    return result;
                 }
             }
             
@@ -1115,10 +1146,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2EnvironmentVariableFree(void** resourc
                                         workingDirectoryWide,           // use parent's current directory 
                                         &startupInfo,                   // STARTUPINFO pointer 
                                         &processInfo);                  // receives PROCESS_INFORMATION 
-            
-            free(commandCopy);
             free(commandCopyWide);
-            
             if(workingDirectoryWide != NULL)
                 free(workingDirectoryWide);
         }
@@ -1479,6 +1507,56 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2EnvironmentVariableFree(void** resourc
         *resource = NULL;
         return SYSTEM2_RESULT_SUCCESS;
     }
+    
+    SYSTEM2_FUNC_PREFIX
+    SYSTEM2_RESULT System2SetEnvironmentVariableWindows(const char* envName, const char* envValue)
+    {
+        if(!envName)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
+        wchar_t* envNameW;
+        int envNameWLen;
+        SYSTEM2_RESULT result = Internal_System2Utf8ToUtf16(envName, 
+                                                            (int)strlen(envName) + 1, 
+                                                            &envNameW, 
+                                                            &envNameWLen);
+        if(result != SYSTEM2_RESULT_SUCCESS)
+            return result;
+        
+        if(envValue)
+        {
+            wchar_t* envValueW;
+            int envValueWLen;
+            result = Internal_System2Utf8ToUtf16(   envValue, 
+                                                    (int)strlen(envValue) + 1, 
+                                                    &envValueW, 
+                                                    &envValueWLen);
+            if(result != SYSTEM2_RESULT_SUCCESS)
+            {
+                free(envNameW);
+                return result;
+            }
+            
+            if(SetEnvironmentVariableW(envNameW, envValueW) == 0)
+            {
+                free(envNameW);
+                free(envValueW);
+                return SYSTEM2_RESULT_WINDOWS_SET_ENV_FAILED;
+            }
+            free(envValueW);
+        }
+        else
+        {
+            if(SetEnvironmentVariableW(envNameW, NULL) == 0)
+            {
+                free(envNameW);
+                return SYSTEM2_RESULT_WINDOWS_SET_ENV_FAILED;
+            }
+        }
+        
+        free(envNameW);
+        return SYSTEM2_RESULT_SUCCESS;
+    }
 #endif //defined(_WIN32)
 
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2Run(  const char* command, 
@@ -1617,6 +1695,18 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2EnvironmentVariableFree(void** resourc
         return System2EnvironmentVariableFreePosix(resource);
     #elif defined(_WIN32)
         return System2EnvironmentVariableFreeWindows(resource);
+    #else
+        return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM;
+    #endif
+}
+
+SYSTEM2_FUNC_PREFIX 
+SYSTEM2_RESULT System2SetEnvironmentVariable(const char* envName, const char* envValue)
+{
+    #if defined(__unix__) || defined(__APPLE__)
+        return System2SetEnvironmentVariablePosix(envName, envValue);
+    #elif defined(_WIN32)
+        return System2SetEnvironmentVariableWindows(envName, envValue);
     #else
         return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM;
     #endif

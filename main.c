@@ -95,6 +95,12 @@ void StdinStdoutExample(void)
     printf("%s: %d\n", "Command has executed with return value", returnCode);
 }
 
+void SetEnvVarsExample(void)
+{
+    SYSTEM2_RESULT result = System2SetEnvironmentVariable("TestEnv", "TestEnvValue");
+    EXIT_IF_FAILED(result);
+}
+
 void ReadEnvVarsExample(void)
 {
     int envVarsCount = 0;
@@ -183,6 +189,7 @@ int main(int argc, char** argv)
         free(testMem);
     #endif
     
+    SetEnvVarsExample();
     ReadEnvVarsExample();
     
     return 0;
