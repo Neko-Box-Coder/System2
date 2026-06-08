@@ -211,6 +211,10 @@ Otherwise, this will return SYSTEM2_RESULT_COMMAND_NOT_FINISHED immediately.
 
 If `manualCleanup` is false, 
 `System2CleanupCommand()` is automatically called when the command has exited.
+You should read/send any input/output first before trying to get the return value.
+
+If `manualCleanup` is true, you can read/send any input/output after getting the return value, but
+you need to call `System2CleanupCommand()` to cleanup the resource handle.
 
 Otherwise, `System2CleanupCommand()` should be called when the command has exited.
 
@@ -232,8 +236,11 @@ Wait for the command to finish and gets the return code
 
 If `manualCleanup` is false, 
 `System2CleanupCommand()` is automatically called when the command has exited.
+You should read/send any input/output first before trying to get the return value.
 
-Otherwise, `System2CleanupCommand()` should be called when the command has exited.
+If `manualCleanup` is true, you can read/send any input/output after getting the return value, but
+you need to call `System2CleanupCommand()` to cleanup the resource handle.
+
 
 Could return the following result:
 - SYSTEM2_RESULT_SUCCESS
