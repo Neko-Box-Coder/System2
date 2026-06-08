@@ -106,7 +106,7 @@ typedef enum
 
 /*
 Runs the command in system shell just like the `system()` funcion with the given settings 
-    passed with `inOutCommandInfo`.
+passed with `inOutCommandInfo`.
 
 This uses 
 `sh -c command` for POSIX and
@@ -128,9 +128,14 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2Run(  const char* command,
 
 /*
 Runs the executable (which can search in PATH env variable) with the given arguments and settings
-    passed with inOutCommandInfo.
+passed with inOutCommandInfo. Arguments are passed to the executable directly. 
+
+Passing `NULL` to `args` denotes no arguments.
 
 On Windows, automatic escaping can be removed by setting the `DisableEscape` in `inOutCommandInfo`
+
+NOTE: Unlike posix exec* function calls, you don't need to pass the path of executable to `args`. 
+This is handled internally.
 
 Could return the following result:
 - SYSTEM2_RESULT_SUCCESS
@@ -330,7 +335,7 @@ SYSTEM2_RESULT System2SetEnvironmentVariable(const char* envName, const char* en
                                                 int argsCount,
                                                 System2CommandInfo* inOutCommandInfo)
     {
-        if(!executable || !args || !inOutCommandInfo)
+        if(!executable || !inOutCommandInfo)
             return SYSTEM2_RESULT_INVALID_ARGUMENT;
         
         int result = pipe(inOutCommandInfo->ParentToChildPipes);
@@ -341,14 +346,13 @@ SYSTEM2_RESULT System2SetEnvironmentVariable(const char* envName, const char* en
         if(result != 0)
             return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
 
-        const char** nullTerminatedArgs = (const char**)calloc(argsCount + 1, sizeof(char*));
+        const char** nullTerminatedArgs = (const char**)calloc(argsCount + 2, sizeof(char*));
         if(nullTerminatedArgs == NULL)
             return SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED;
         
+        nullTerminatedArgs[0] = executable;
         for(int i = 0; i < argsCount; ++i)
-            nullTerminatedArgs[i] = args[i];
-        
-        nullTerminatedArgs[argsCount] = NULL;
+            nullTerminatedArgs[i + 1] = args[i];
         
         #if !defined(SYSTEM2_POSIX_SPAWN) || SYSTEM2_POSIX_SPAWN == 0
             pid_t pid = fork();
@@ -507,9 +511,9 @@ SYSTEM2_RESULT System2SetEnvironmentVariable(const char* envName, const char* en
     SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2RunPosix( const char* command, 
                                                         System2CommandInfo* inOutCommandInfo)
     {
-        const char* args[] = { "/bin/sh", "-c", command };
+        const char* args[] = { "-c", command };
         
-        return System2RunSubprocessPosix("/bin/sh", args, 3, inOutCommandInfo);
+        return System2RunSubprocessPosix("/bin/sh", args, 2, inOutCommandInfo);
     }
     
     SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2ReadFromOutputPosix(  const System2CommandInfo* info, 
@@ -991,7 +995,7 @@ SYSTEM2_RESULT System2SetEnvironmentVariable(const char* envName, const char* en
                                                 int argsCount,
                                                 System2CommandInfo* inOutCommandInfo)
     {
-        if(!executable || !args || !inOutCommandInfo)
+        if(!executable || !inOutCommandInfo)
             return SYSTEM2_RESULT_INVALID_ARGUMENT;
         
         // Set the write handle to the pipe for STDOUT to be inherited.

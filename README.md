@@ -109,7 +109,7 @@ typedef struct
 
 /*
 Runs the command in system shell just like the `system()` funcion with the given settings 
-    passed with `inOutCommandInfo`.
+passed with `inOutCommandInfo`.
 
 This uses 
 `sh -c command` for POSIX and
@@ -131,9 +131,14 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2Run(  const char* command,
 
 /*
 Runs the executable (which can search in PATH env variable) with the given arguments and settings
-    passed with inOutCommandInfo.
+passed with inOutCommandInfo. Arguments are passed to the executable directly. 
+
+Passing `NULL` to `args` denotes no arguments.
 
 On Windows, automatic escaping can be removed by setting the `DisableEscape` in `inOutCommandInfo`
+
+NOTE: Unlike posix exec* function calls, you don't need to pass the path of executable to `args`. 
+This is handled internally.
 
 Could return the following result:
 - SYSTEM2_RESULT_SUCCESS
