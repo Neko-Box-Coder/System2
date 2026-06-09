@@ -1312,16 +1312,18 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
                 }
             }
             
-            char* allEnvVars = NULL;
-            size_t charsCount = 0;
-            size_t charsIndex = 0;
+            wchar_t* allEnvVarsW = NULL;
+            size_t allEnvVarsWCount = 0;
             if(inOutCommandInfo->EnvVarsNames)
             {
+                char* allEnvVars = NULL;
+                size_t charsCount = 0;
+                size_t charsIndex = 0;
+                
                 int curEnvCounts;
                 void* res;
-                SYSTEM2_RESULT system2Result = System2GetEnvironmentVariablesCount( &curEnvCounts, 
-                                                                                    &res);
-                if(system2Result != SYSTEM2_RESULT_SUCCESS)
+                result = System2GetEnvironmentVariablesCount(&curEnvCounts, &res);
+                if(result != SYSTEM2_RESULT_SUCCESS)
                     return SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED;
                 
                 charsCount = (curEnvCounts + inOutCommandInfo->EnvVarsCount) * 16;
@@ -1357,13 +1359,13 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
                     int envNameLength;
                     const char* envValue;
                     int envValueLength;
-                    system2Result = System2GetEnvironmentVariable(  res, 
-                                                                    &envName, 
-                                                                    &envNameLength,
-                                                                    &envValue,
-                                                                    &envValueLength,
-                                                                    i);
-                    if(system2Result != SYSTEM2_RESULT_SUCCESS)
+                    result = System2GetEnvironmentVariable( res, 
+                                                            &envName, 
+                                                            &envNameLength,
+                                                            &envValue,
+                                                            &envValueLength,
+                                                            i);
+                    if(result != SYSTEM2_RESULT_SUCCESS)
                         continue;
                     
                     //See if the current existing environment variable is mentioned from the user
@@ -1434,11 +1436,20 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
                 allEnvVars[charsIndex++] = '\0';
                 allEnvVars[charsIndex++] = '\0';
                 
+                
+                #undef ENSURE_SIZE
+                result = Internal_System2Utf8ToUtf16(   allEnvVars, 
+                                                        (int)charsIndex,
+                                                        &allEnvVarsW,
+                                                        &allEnvVarsWCount);
                 //Free stuff
                 free(newUserEntries);
                 System2EnvironmentVariableFree(&res);
+                free(allEnvVars);
                 
-                #undef ENSURE_SIZE
+                //Return if unicode conversion failed
+                if(result != SYSTEM2_RESULT_SUCCESS)
+                    return result;
             } //if(inOutCommandInfo->EnvVarsNames)
             
             success = CreateProcessW(   NULL, 
@@ -1448,13 +1459,13 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
                                         NULL,                           // primary thread security attributes 
                                         TRUE,                           // handles are inherited 
                                         CREATE_UNICODE_ENVIRONMENT,     // creation flags 
-                                        NULL,                           // use parent's environment 
+                                        allEnvVarsW,                    // environment vars
                                         workingDirectoryWide,           // use parent's current directory 
                                         &startupInfo,                   // STARTUPINFO pointer 
                                         &processInfo);                  // receives PROCESS_INFORMATION 
             free(commandCopyWide);
             free(workingDirectoryWide);
-            free(allEnvVars);
+            free(allEnvVarsW);
         }
         
         // If an error occurs, exit the application. 
