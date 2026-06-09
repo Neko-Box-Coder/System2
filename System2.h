@@ -1313,7 +1313,7 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
             }
             
             wchar_t* allEnvVarsW = NULL;
-            size_t allEnvVarsWCount = 0;
+            int allEnvVarsWCount = 0;
             if(inOutCommandInfo->EnvVarsNames)
             {
                 char* allEnvVars = NULL;
