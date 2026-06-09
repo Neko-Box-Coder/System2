@@ -1319,7 +1319,8 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
             {
                 int curEnvCounts;
                 void* res;
-                system2Result = System2GetEnvironmentVariablesCount(&curEnvCounts, &res);
+                SYSTEM2_RESULT system2Result = System2GetEnvironmentVariablesCount( &curEnvCounts, 
+                                                                                    &res);
                 if(system2Result != SYSTEM2_RESULT_SUCCESS)
                     return SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED;
                 
