@@ -159,7 +159,7 @@ void RunWithEnvExample(void)
     #endif
     
     #if defined(_WIN32)
-        result = System2Run("echo NewEnv is \"!NewEnv!\"", &commandInfo);
+        result = System2Run("echo NewEnv is \"%NewEnv%\"", &commandInfo);
     #endif
     
     EXIT_IF_FAILED(result);
