@@ -58,7 +58,11 @@ typedef struct
 {
     bool RedirectInput;         //Redirect input with pipe?
     bool RedirectOutput;        //Redirect output with pipe?
-    const char* RunDirectory;   //The directory to run the command in?
+    const char* RunDirectory;   //The directory to run the command in? NULL for current working directory
+    const char** EnvVarsNames;  //Array of environment variables names to add/set/unset. Will be ignored if NULL
+    const char** EnvVarsValues; //Array of environment variables values to add/set/unset. Will be ignored if NULL.
+                                //If the value itself is NULL, it will unset the environment variable
+    int EnvVarsCount;           //How many environment variables, if `EnvVarsNames` is not NULL
     
     #if defined(__unix__) || defined(__APPLE__)
         int ParentToChildPipes[2];
@@ -326,6 +330,35 @@ SYSTEM2_RESULT System2SetEnvironmentVariable(const char* envName, const char* en
 #include <stdlib.h>
 #include <stdbool.h>
 
+SYSTEM2_FUNC_PREFIX
+SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo)
+{
+    if(!commandInfo)
+        return SYSTEM2_RESULT_INVALID_ARGUMENT;
+    
+    if(!commandInfo->EnvVarsNames)
+        return SYSTEM2_RESULT_SUCCESS;
+    
+    //Make sure we have everything we need if we need to override environment variables
+    if(!commandInfo->EnvVarsValues)
+        return SYSTEM2_RESULT_INVALID_ARGUMENT;
+    
+    for(int i = 0; i < commandInfo->EnvVarsCount; ++i)
+    {
+        //We can't have NULL entry for env var name
+        if(!commandInfo->EnvVarsNames[i])
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+            
+        for(const char* envChar = commandInfo->EnvVarsNames[i]; *envChar != '\0'; ++envChar)
+        {
+            if(*envChar == '=')
+                return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        }
+    }
+    
+    return SYSTEM2_RESULT_SUCCESS;
+}
+
 #if defined(__unix__) || defined(__APPLE__)
     #include <sys/wait.h>
     extern char** environ;
@@ -344,6 +377,10 @@ SYSTEM2_RESULT System2SetEnvironmentVariable(const char* envName, const char* en
     {
         if(!executable || !inOutCommandInfo)
             return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
+        SYSTEM2_RESULT system2Result = Internal_System2ValidateCustomEnv(inOutCommandInfo);
+        if(system2Result != SYSTEM2_RESULT_SUCCESS)
+            return system2Result;
         
         int result = pipe(inOutCommandInfo->ParentToChildPipes);
         if(result != 0)
@@ -382,6 +419,16 @@ SYSTEM2_RESULT System2SetEnvironmentVariable(const char* envName, const char* en
                 {
                     if(chdir(inOutCommandInfo->RunDirectory) != 0)
                         _exit(4);
+                }
+                
+                //Cheating and be lazy to just use the system2 env var functions :)
+                if(inOutCommandInfo->EnvVarsNames)
+                {
+                    for(int i = 0; i < inOutCommandInfo->EnvVarsCount; ++i)
+                    {
+                        System2SetEnvironmentVariable(  inOutCommandInfo->EnvVarsNames[i], 
+                                                        inOutCommandInfo->EnvVarsValues[i]);
+                    }
                 }
                 
                 if(inOutCommandInfo->RedirectInput)
@@ -483,15 +530,133 @@ SYSTEM2_RESULT System2SetEnvironmentVariable(const char* envName, const char* en
             }
 
             pid_t pid;
-            int spawn_status = posix_spawnp(&pid, 
+            int spawn_status;
+            if(inOutCommandInfo->EnvVarsNames)
+            {
+                int curEnvCounts;
+                void* res;
+                system2Result = System2GetEnvironmentVariablesCount(&curEnvCounts, &res);
+                if(system2Result != SYSTEM2_RESULT_SUCCESS)
+                    return SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED;
+                
+                const char** entries = 
+                    (const char**)calloc(   (curEnvCounts + inOutCommandInfo->EnvVarsCount)+ 1, 
+                                            sizeof(char*));
+                bool* newUserEntries = (bool*)malloc(inOutCommandInfo->EnvVarsCount * sizeof(bool));
+                memset(newUserEntries, 1, inOutCommandInfo->EnvVarsCount * sizeof(bool));
+                
+                int entryIndex = 0;
+                
+                //Add the current existing env vars first
+                for(int i = 0; i < curEnvCounts; ++i)
+                {
+                    const char* envName;
+                    int envNameLength;
+                    const char* envValue;
+                    int envValueLength;
+                    system2Result = System2GetEnvironmentVariable(  res, 
+                                                                    &envName, 
+                                                                    &envNameLength,
+                                                                    &envValue,
+                                                                    &envValueLength,
+                                                                    i);
+                    if(system2Result != SYSTEM2_RESULT_SUCCESS)
+                        continue;
+                    
+                    //See if the current existing environment variable is mentioned from the user
+                    bool skipThis = false;
+                    for(int j = 0; j < inOutCommandInfo->EnvVarsCount; ++j)
+                    {
+                        if(envNameLength != (int)strlen(inOutCommandInfo->EnvVarsNames[j]))
+                            continue;
+                        
+                        if(memcmp(envName, inOutCommandInfo->EnvVarsNames[j], envNameLength) == 0)
+                        {
+                            skipThis = true;
+                            newUserEntries[j] = false;
+                            
+                            if(inOutCommandInfo->EnvVarsValues[j])
+                            {
+                                //+2 for `=` & `\0`
+                                size_t entrySize =  envNameLength + 
+                                                    strlen(inOutCommandInfo->EnvVarsValues[j]) + 2;
+                                char* entryStr = (char*)malloc(entrySize);
+                                snprintf(   entryStr, 
+                                            entrySize, 
+                                            "%.*s=%s", 
+                                            envNameLength, 
+                                            envName, 
+                                            inOutCommandInfo->EnvVarsValues[j]);
+                                
+                                entries[entryIndex++] = entryStr;
+                            }
+                            break;
+                        }
+                    }
+                    
+                    if(skipThis)
+                        continue;
+                    
+                    //If the user did not mention this, add it to the envp (+2 for `=` & `\0`)
+                    char* entryStr = (char*)malloc(envNameLength + envValueLength + 2);
+                    snprintf(   entryStr, 
+                                envNameLength + envValueLength + 2, 
+                                "%.*s=%.*s", 
+                                envNameLength, 
+                                envName, 
+                                envValueLength,
+                                envValue);
+                    entries[entryIndex++] = entryStr;
+                } //for(int i = 0; i < curEnvCounts; ++i)
+                
+                //Then add the user defined ones
+                for(int i = 0; i < inOutCommandInfo->EnvVarsCount; ++i)
+                {
+                    if(!newUserEntries[i])
+                        continue;
+                    
+                    size_t entrySize =  strlen(inOutCommandInfo->EnvVarsNames[i]) + 
+                                        strlen(inOutCommandInfo->EnvVarsValues[i]) + 2;
+                    char* entryStr = (char*)malloc(entrySize);
+                    snprintf(   entryStr, 
+                                entrySize, 
+                                "%s=%s", 
+                                inOutCommandInfo->EnvVarsNames[i],
+                                inOutCommandInfo->EnvVarsValues[i]);
+                    entries[entryIndex++] = entryStr;
+                }
+                
+                //Finally spawn the new process
+                spawn_status = posix_spawnp(&pid, 
+                                            executable, 
+                                            &file_actions, 
+                                            NULL, 
+                                            (char**)nullTerminatedArgs, 
+                                            (char**)entries);
+                
+                //Free stuff
+                free(newUserEntries);
+                const char** entry = entries;
+                while(*entry)
+                {
+                    free((char*)*entry);
+                    ++entry;
+                }
+                
+                free(entries);
+                System2EnvironmentVariableFree(&res);
+            } //if(inOutCommandInfo->EnvVarsNames)
+            else
+            {
+                spawn_status = posix_spawnp(&pid, 
                                             executable, 
                                             &file_actions, 
                                             NULL, 
                                             (char **)nullTerminatedArgs, 
                                             environ);
-            
-            posix_spawn_file_actions_destroy(&file_actions);
+            }
 
+            posix_spawn_file_actions_destroy(&file_actions);
             if(spawn_status != 0)
             {
                 fprintf(stderr, "posix_spawn failed: %s\n", strerror(spawn_status));
@@ -1147,6 +1312,134 @@ SYSTEM2_RESULT System2SetEnvironmentVariable(const char* envName, const char* en
                 }
             }
             
+            char* allEnvVars = NULL;
+            size_t charsCount = 0;
+            size_t charsIndex = 0;
+            if(inOutCommandInfo->EnvVarsNames)
+            {
+                int curEnvCounts;
+                void* res;
+                system2Result = System2GetEnvironmentVariablesCount(&curEnvCounts, &res);
+                if(system2Result != SYSTEM2_RESULT_SUCCESS)
+                    return SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED;
+                
+                charsCount = (curEnvCounts + inOutCommandInfo->EnvVarsCount) * 16;
+                allEnvVars = (char*)calloc(charsCount, sizeof(char));
+                
+                bool* newUserEntries = (bool*)malloc(inOutCommandInfo->EnvVarsCount * sizeof(bool));
+                memset(newUserEntries, 1, inOutCommandInfo->EnvVarsCount * sizeof(bool));
+                
+                #define ENSURE_SIZE(sizeNeeded) \
+                    do \
+                    { \
+                        if(charsCount - charsIndex < sizeNeeded) \
+                        { \
+                            char* newMem = realloc(allEnvVars, charsCount + sizeNeeded); \
+                            if(!newMem) \
+                            { \
+                                free(allEnvVars); \
+                                free(newUserEntries); \
+                                free(workingDirectoryWide); \
+                                free(commandCopyWide); \
+                                return SYSTEM2_RESULT_MALLOC_FAILED; \
+                            } \
+                            allEnvVars = newMem; \
+                            charsCount += sizeNeeded; \
+                        } \
+                    } \
+                    while(0)
+                
+                //Add the current existing env vars first
+                for(int i = 0; i < curEnvCounts; ++i)
+                {
+                    const char* envName;
+                    int envNameLength;
+                    const char* envValue;
+                    int envValueLength;
+                    system2Result = System2GetEnvironmentVariable(  res, 
+                                                                    &envName, 
+                                                                    &envNameLength,
+                                                                    &envValue,
+                                                                    &envValueLength,
+                                                                    i);
+                    if(system2Result != SYSTEM2_RESULT_SUCCESS)
+                        continue;
+                    
+                    //See if the current existing environment variable is mentioned from the user
+                    bool skipThis = false;
+                    for(int j = 0; j < inOutCommandInfo->EnvVarsCount; ++j)
+                    {
+                        if(envNameLength != (int)strlen(inOutCommandInfo->EnvVarsNames[j]))
+                            continue;
+                        
+                        if(memcmp(envName, inOutCommandInfo->EnvVarsNames[j], envNameLength) == 0)
+                        {
+                            skipThis = true;
+                            newUserEntries[j] = false;
+                            
+                            if(inOutCommandInfo->EnvVarsValues[j])
+                            {
+                                //+2 for `=` & `\0`
+                                size_t entrySize =  envNameLength + 
+                                                    strlen(inOutCommandInfo->EnvVarsValues[j]) + 2;
+                                ENSURE_SIZE(entrySize);
+                                snprintf(   allEnvVars + charsIndex, 
+                                            entrySize, 
+                                            "%.*s=%s", 
+                                            envNameLength, 
+                                            envName, 
+                                            inOutCommandInfo->EnvVarsValues[j]);
+                                charsIndex += entrySize;
+                            }
+                            break;
+                        }
+                    }
+                    
+                    if(skipThis)
+                        continue;
+                    
+                    //If the user did not mention this, add it to the envp (+2 for `=` & `\0`)
+                    size_t entrySize = envNameLength + envValueLength + 2;
+                    ENSURE_SIZE(entrySize);
+                    snprintf(   allEnvVars + charsIndex, 
+                                entrySize, 
+                                "%.*s=%.*s", 
+                                envNameLength, 
+                                envName, 
+                                envValueLength,
+                                envValue);
+                    charsIndex += entrySize;
+                } //for(int i = 0; i < curEnvCounts; ++i)
+                
+                //Then add the user defined ones
+                for(int i = 0; i < inOutCommandInfo->EnvVarsCount; ++i)
+                {
+                    if(!newUserEntries[i])
+                        continue;
+                    
+                    size_t entrySize =  strlen(inOutCommandInfo->EnvVarsNames[i]) + 
+                                        strlen(inOutCommandInfo->EnvVarsValues[i]) + 2;
+                    ENSURE_SIZE(entrySize);
+                    snprintf(   allEnvVars + charsIndex, 
+                                entrySize, 
+                                "%s=%s", 
+                                inOutCommandInfo->EnvVarsNames[i],
+                                inOutCommandInfo->EnvVarsValues[i]);
+                    charsIndex += entrySize;
+                }
+                
+                //Append \0 as a safety net in case one of the sentence is not ending with \0
+                ENSURE_SIZE(charsIndex + 2);
+                allEnvVars[charsIndex++] = '\0';
+                allEnvVars[charsIndex++] = '\0';
+                
+                //Free stuff
+                free(newUserEntries);
+                System2EnvironmentVariableFree(&res);
+                
+                #undef ENSURE_SIZE
+            } //if(inOutCommandInfo->EnvVarsNames)
+            
             success = CreateProcessW(   NULL, 
                                         commandCopyWide,                // command line 
                                         //L"PrintArgs.exe a\\\\b d\"e f\"g h",
@@ -1159,8 +1452,8 @@ SYSTEM2_RESULT System2SetEnvironmentVariable(const char* envName, const char* en
                                         &startupInfo,                   // STARTUPINFO pointer 
                                         &processInfo);                  // receives PROCESS_INFORMATION 
             free(commandCopyWide);
-            if(workingDirectoryWide != NULL)
-                free(workingDirectoryWide);
+            free(workingDirectoryWide);
+            free(allEnvVars);
         }
         
         // If an error occurs, exit the application. 
