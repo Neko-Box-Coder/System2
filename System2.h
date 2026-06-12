@@ -1675,7 +1675,7 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
             ++strCount;
             ++envStrings;
         }
-        ++strCount;
+        strCount += 2;
         
         int requiredBytes = WideCharToMultiByte(CP_UTF8, 
                                                 0, 
