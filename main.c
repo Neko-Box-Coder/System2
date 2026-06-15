@@ -141,6 +141,34 @@ void StdinStdoutExample(void)
     printf("%s: %d\n", "Command has executed with return value", returnCode);
 }
 
+void RunWithEnvExample(void)
+{
+    FUNC_HEADER();
+    
+    System2CommandInfo commandInfo;
+    memset(&commandInfo, 0, sizeof(System2CommandInfo));
+    const char* envName = "NewEnv";
+    const char* envValue = "NewEnvValue";
+    commandInfo.EnvVarsNames = &envName;
+    commandInfo.EnvVarsValues = &envValue;
+    commandInfo.EnvVarsCount = 1;
+    
+    SYSTEM2_RESULT result;
+    #if defined(__unix__) || defined(__APPLE__)
+        result = System2Run("echo NewEnv is \\\"$NewEnv\\\"", &commandInfo);
+    #endif
+    
+    #if defined(_WIN32)
+        result = System2Run("echo NewEnv is \"%NewEnv%\"", &commandInfo);
+    #endif
+    
+    EXIT_IF_FAILED(result);
+    
+    int returnCode = -1;
+    result = System2GetCommandReturnValueSync(&commandInfo, &returnCode, false);
+    EXIT_IF_FAILED(result);
+}
+
 void SetEnvVarsExample(void)
 {
     FUNC_HEADER();
@@ -210,6 +238,8 @@ int main(int argc, char** argv)
     
     SetEnvVarsExample();
     ReadEnvVarsExample();
+    
+    RunWithEnvExample();
     
     return 0;
 }
