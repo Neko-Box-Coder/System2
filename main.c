@@ -17,6 +17,52 @@
     #include <stdlib.h>
 #endif
 
+
+System2CommandInfo RedirectIOExample(void);
+void ReadRedirectedIOExample(System2CommandInfo commandInfo);
+void BlockedCommandExample(void);
+void StdinStdoutExample(void);
+void RunWithEnvExample(void);
+void SetEnvVarsExample(void);
+void ReadEnvVarsExample(void);
+
+
+int main(int argc, char** argv) 
+{
+    (void)argc;
+    (void)argv;
+    
+    #if SYSTEM2_TEST_MEMORY
+        void* testMem = malloc(50 * 1024 * 1024); //Test 50 MB
+        memset(testMem, 1, 50 * 1024 * 1024);
+    #endif
+    
+    //Execute the first command
+    System2CommandInfo commandInfo = RedirectIOExample();
+
+    //We can execute other commands while the previous one is still running
+    //Output: Hello
+    BlockedCommandExample();
+    
+    //The first command should be finish by now.
+    ReadRedirectedIOExample(commandInfo);
+    memset(&commandInfo, 0, sizeof(commandInfo));
+    
+    //If you don't do redirect, it will directly use stdin and stdout instead
+    StdinStdoutExample();
+    
+    #if SYSTEM2_TEST_MEMORY
+        free(testMem);
+    #endif
+    
+    SetEnvVarsExample();
+    ReadEnvVarsExample();
+    
+    RunWithEnvExample();
+    
+    return 0;
+}
+
 #define EXIT_IF_FAILED(result) \
     if(result != SYSTEM2_RESULT_SUCCESS) \
     {\
@@ -206,40 +252,4 @@ void ReadEnvVarsExample(void)
     
     result = System2EnvironmentVariableFree(&resource);
     EXIT_IF_FAILED(result);
-}
-
-int main(int argc, char** argv) 
-{
-    (void)argc;
-    (void)argv;
-    
-    #if SYSTEM2_TEST_MEMORY
-        void* testMem = malloc(50 * 1024 * 1024); //Test 50 MB
-        memset(testMem, 1, 50 * 1024 * 1024);
-    #endif
-    
-    //Execute the first command
-    System2CommandInfo commandInfo = RedirectIOExample();
-
-    //We can execute other commands while the previous one is still running
-    //Output: Hello
-    BlockedCommandExample();
-    
-    //The first command should be finish by now.
-    ReadRedirectedIOExample(commandInfo);
-    memset(&commandInfo, 0, sizeof(commandInfo));
-    
-    //If you don't do redirect, it will directly use stdin and stdout instead
-    StdinStdoutExample();
-    
-    #if SYSTEM2_TEST_MEMORY
-        free(testMem);
-    #endif
-    
-    SetEnvVarsExample();
-    ReadEnvVarsExample();
-    
-    RunWithEnvExample();
-    
-    return 0;
 }
