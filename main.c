@@ -18,15 +18,19 @@
 #endif
 
 #define EXIT_IF_FAILED(result) \
-if(result != SYSTEM2_RESULT_SUCCESS) \
-{\
-    printf("Error at %d: %d", __LINE__, result);\
-    exit(-1);\
-}
+    if(result != SYSTEM2_RESULT_SUCCESS) \
+    {\
+        printf("Error at %d: %d", __LINE__, result);\
+        exit(-1);\
+    }
 
+
+#define FUNC_HEADER() printf("\n\n---------------------\n%s\n---------------------\n", __func__)
 
 System2CommandInfo RedirectIOExample(void)
 {
+    FUNC_HEADER();
+    
     System2CommandInfo commandInfo;
     memset(&commandInfo, 0, sizeof(System2CommandInfo));
     commandInfo.RedirectInput = true;
@@ -51,8 +55,45 @@ System2CommandInfo RedirectIOExample(void)
     return commandInfo;
 }
 
+void ReadRedirectedIOExample(System2CommandInfo commandInfo)
+{
+    FUNC_HEADER();
+    
+    //Output: testVar is "test content"
+    //Output: 1st command has finished with return value: : 0
+    
+    int returnCode = -1;
+    //True to perform manual cleanup
+    SYSTEM2_RESULT result = System2GetCommandReturnValueAsync(&commandInfo, &returnCode, true);
+    
+    if(result == SYSTEM2_RESULT_SUCCESS)
+    {
+        char outputBuffer[1024];
+        
+        do
+        {
+            uint32_t bytesRead = 0;
+            result = System2ReadFromOutput(&commandInfo, outputBuffer, 1023, &bytesRead);
+            outputBuffer[bytesRead] = 0;
+            printf("%s", outputBuffer);
+        }
+        while(result == SYSTEM2_RESULT_READ_NOT_FINISHED);
+        
+        printf("%s: %d\n", "1st command has finished with return value", returnCode);
+    }
+    else if(result == SYSTEM2_RESULT_COMMAND_NOT_FINISHED)
+        printf("1st command not yet finished");
+    else
+        EXIT_IF_FAILED(result);
+    
+    result = System2CleanupCommand(&commandInfo);
+    EXIT_IF_FAILED(result);
+}
+
 void BlockedCommandExample(void)
 {
+    FUNC_HEADER();
+    
     System2CommandInfo commandInfo;
     
     memset(&commandInfo, 0, sizeof(System2CommandInfo));
@@ -74,6 +115,11 @@ void BlockedCommandExample(void)
 
 void StdinStdoutExample(void)
 {
+    FUNC_HEADER();
+    
+    printf("\nUsing stdin now, enter the value of testVar: ");
+    fflush(stdout);
+    
     System2CommandInfo commandInfo;
     memset(&commandInfo, 0, sizeof(System2CommandInfo));
     SYSTEM2_RESULT result;
@@ -97,12 +143,16 @@ void StdinStdoutExample(void)
 
 void SetEnvVarsExample(void)
 {
+    FUNC_HEADER();
+    
     SYSTEM2_RESULT result = System2SetEnvironmentVariable("TestEnv", "TestEnvValue");
     EXIT_IF_FAILED(result);
 }
 
 void ReadEnvVarsExample(void)
 {
+    FUNC_HEADER();
+    
     int envVarsCount = 0;
     void* resource;
     SYSTEM2_RESULT result = System2GetEnvironmentVariablesCount(&envVarsCount, &resource);
@@ -148,39 +198,8 @@ int main(int argc, char** argv)
     BlockedCommandExample();
     
     //The first command should be finish by now.
-    //Output: testVar is "test content"
-    //Output: 1st command has finished with return value: : 0
-    {
-        int returnCode = -1;
-        //True to perform manual cleanup
-        SYSTEM2_RESULT result = System2GetCommandReturnValueAsync(&commandInfo, &returnCode, true);
-        
-        if(result == SYSTEM2_RESULT_SUCCESS)
-        {
-            char outputBuffer[1024];
-            
-            do
-            {
-                uint32_t bytesRead = 0;
-                result = System2ReadFromOutput(&commandInfo, outputBuffer, 1023, &bytesRead);
-                outputBuffer[bytesRead] = 0;
-                printf("%s", outputBuffer);
-            }
-            while(result == SYSTEM2_RESULT_READ_NOT_FINISHED);
-            
-            printf("%s: %d\n", "1st command has finished with return value", returnCode);
-        }
-        else if(result == SYSTEM2_RESULT_COMMAND_NOT_FINISHED)
-            printf("1st command not yet finished");
-        else
-            EXIT_IF_FAILED(result);
-        
-        result = System2CleanupCommand(&commandInfo);
-        EXIT_IF_FAILED(result);
-    }
-    
-    printf("\nUsing stdin now, enter the value of testVar: ");
-    fflush(stdout);
+    ReadRedirectedIOExample(commandInfo);
+    memset(&commandInfo, 0, sizeof(commandInfo));
     
     //If you don't do redirect, it will directly use stdin and stdout instead
     StdinStdoutExample();
