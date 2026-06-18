@@ -28,7 +28,8 @@ provide input to stdin and capture the output from stdout and stderr.
 - No dependencies (only standard C and system libraries).
     No longer need a heavy framework like boost or poco just to capture output from running a command.
 - Header only library (source version available as well)
-- Getting/Iterating and Setting environment variables
+- Getting/Iterating/Setting environment variables
+- Running process with different environment variables
 - UTF-8 support\*
 - CMake integration
 
@@ -98,7 +99,11 @@ typedef struct
 {
     bool RedirectInput;         //Redirect input with pipe?
     bool RedirectOutput;        //Redirect output with pipe?
-    const char* RunDirectory;   //The directory to run the command in?
+    const char* RunDirectory;   //The directory to run the command in? NULL for current working directory
+    const char** EnvVarsNames;  //Array of environment variables names to add/set/unset. Will be ignored if NULL
+    const char** EnvVarsValues; //Array of environment variables values to add/set/unset. Will be ignored if NULL.
+                                //If the value itself is NULL, it will unset the environment variable
+    int EnvVarsCount;           //How many environment variables, if `EnvVarsNames` is not NULL
     
     #if defined(_WIN32)
         bool DisableEscapes;    //Disable automatic escaping?
