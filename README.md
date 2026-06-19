@@ -24,6 +24,7 @@ provide input to stdin and capture the output from stdout and stderr.
 - Cross-platform (POSIX and Windows)
 - Command interaction with stdin, stdout, and stderr
 - Invoking shell commands and launching executables
+- Termintating commands
 - Blocking (sync) and non-blocking (async) version
 - No dependencies (only standard C and system libraries).
     No longer need a heavy framework like boost or poco just to capture output from running a command.
@@ -257,6 +258,44 @@ Could return the following results:
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System2CommandInfo* info, 
                                                                     int* outReturnCode,
                                                                     bool manualCleanup);
+
+/*
+Kills (cannot be caught) a spawned command.
+
+NOTE: On Posix, this will cause `System2GetCommandReturnValue*` to return 
+      `SYSTEM2_RESULT_COMMAND_TERMINATED`. 
+      While on Windows, `SYSTEM2_RESULT_SUCCESS` will be returned instead.
+
+Could return the following results:
+- SYSTEM2_RESULT_SUCCESS
+- SYSTEM2_RESULT_INVALID_ARGUMENT
+- SYSTEM2_RESULT_KILL_FAILED
+*/
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2Kill(const System2CommandInfo* info);
+
+
+/*
+Terminates a spawned command. 
+
+NOTE: This has no guarantee that the command is terminated even if the returned value is 
+      `SYSTEM2_RESULT_SUCCESS`. You should always check the status of the command with 
+      `System2GetCommandReturnValue*`.
+
+NOTE: On Posix, this will cause `System2GetCommandReturnValue*` to return 
+      `SYSTEM2_RESULT_COMMAND_TERMINATED`. 
+      While on Windows, `SYSTEM2_RESULT_SUCCESS` will be returned instead.
+
+NOTE: This will fail with `SYSTEM2_RESULT_WINDOWS_TERM_NO_WINDOW` on Windows if the spawned command 
+      has no window handle. In which case, you will need to kill it instead.
+
+Could return the following results:
+- SYSTEM2_RESULT_SUCCESS
+- SYSTEM2_RESULT_INVALID_ARGUMENT
+- SYSTEM2_RESULT_TERM_FAILED
+- SYSTEM2_RESULT_WINDOWS_TERM_NO_WINDOW
+- SYSTEM2_RESULT_MALLOC_FAILED
+*/
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2Term(const System2CommandInfo* info);
 
 /*
 Returns the count of environment variables, along with a resource handle which can be used to 
