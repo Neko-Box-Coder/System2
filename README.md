@@ -120,7 +120,7 @@ This uses
 `sh -c command` for POSIX and
 `cmd /s /v /c command` for Windows
 
-Could return the following result:
+Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_PIPE_CREATE_FAILED
 - SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED
@@ -145,7 +145,7 @@ On Windows, automatic escaping can be removed by setting the `DisableEscape` in 
 NOTE: Unlike posix exec* function calls, you don't need to pass the path of executable to `args`. 
 This is handled internally.
 
-Could return the following result:
+Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_PIPE_CREATE_FAILED
 - SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED
@@ -173,7 +173,7 @@ this function can be called again until SYSTEM2_RESULT_SUCCESS to retrieve the r
 
 outBytesRead determines how many bytes have been read for **this** function call
 
-Could return the following result:
+Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_READ_NOT_FINISHED
 - SYSTEM2_RESULT_READ_FAILED
@@ -187,7 +187,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2ReadFromOutput(   const System2Command
 /*
 Write the input (stdin) to the command. 
 
-Could return the following result:
+Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_WRITE_FAILED
 - SYSTEM2_RESULT_INVALID_ARGUMENT
@@ -203,7 +203,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2WriteToInput( const System2CommandInfo
 /*
 Cleanup any open handles associated with the command.
 
-Could return the following result:
+Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED
 - SYSTEM2_RESULT_INVALID_ARGUMENT
@@ -223,7 +223,7 @@ you need to call `System2CleanupCommand()` to cleanup the resource handle.
 
 Otherwise, `System2CleanupCommand()` should be called when the command has exited.
 
-Could return the following result:
+Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_COMMAND_NOT_FINISHED
 - SYSTEM2_RESULT_COMMAND_TERMINATED
@@ -247,7 +247,7 @@ If `manualCleanup` is true, you can read/send any input/output after getting the
 you need to call `System2CleanupCommand()` to cleanup the resource handle.
 
 
-Could return the following result:
+Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_COMMAND_TERMINATED
 - SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED
@@ -267,7 +267,7 @@ The resource handle should be freed with `System2EnvironmentVariableFree()` when
 NOTE: If you need to get a particular environment variable without iteration, use `getenv()` from the
       standard library.
 
-Could return the following result:
+Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_INVALID_ARGUMENT
 - SYSTEM2_RESULT_MALLOC_FAILED
@@ -285,7 +285,7 @@ immediately as changes to the environment variable might invalidate them.
 NOTE: If you need to get a particular environment variable without iteration, use `getenv()` from the
       standard library.
 
-Could return the following result:
+Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_INVALID_ARGUMENT
 */
@@ -299,7 +299,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetEnvironmentVariable(   const void* 
 /*
 Free the resource handle created by `System2GetEnvironmentVariablesCount()` and set it to NULL.
 
-Could return the following result:
+Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_INVALID_ARGUMENT
 */
@@ -314,7 +314,7 @@ trying to unset, this function MIGHT fail depending on the platform.
 
 To make sure the environement variable is correctly set, you should get the environment variable.
 
-Could return the following result:
+Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_INVALID_ARGUMENT
 - SYSTEM2_RESULT_WINDOWS_UNICODE_FAILED
