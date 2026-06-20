@@ -1,8 +1,3 @@
-### System2
-
-`System2` is a cross-platform c library that allows you to call shell commands and other executables (subprocess), just like `system` but with the ability to
-provide input to stdin and capture the output from stdout and stderr.
-
 ```text
   _______________________________
 /_______________________________/|
@@ -14,85 +9,99 @@ provide input to stdin and capture the output from stdout and stderr.
 ```
 > From: https://patorjk.com with Graceful font
 
-> [!NOTE]
-> 
-> For a C++ wrapper, check out [System2.cpp](https://github.com/Neko-Box-Coder/System2.cpp)
+**System2** is a cross-platform c library that allows you to call shell commands and other executables (subprocess), just like `system` but with the ability to
+provide input to stdin and capture the output from stdout and stderr.
+
 
 #### Features
 
+- Header only (source version available as well)
 - Written in C99, and is ready to be used in C++ as well
 - Cross-platform (POSIX and Windows)
 - Command interaction with stdin, stdout, and stderr
-- Invoking shell commands and launching executables
-- Termintating commands
 - Blocking (sync) and non-blocking (async) version
+- Termintating commands early
+- Custom Environment Variables Support
 - No dependencies (only standard C and system libraries).
     No longer need a heavy framework like boost or poco just to capture output from running a command.
-- Header only library (source version available as well)
-- Getting/Iterating/Setting environment variables
-- Running process with different environment variables
 - UTF-8 support\*
 - CMake integration
 
 \* See Remarks for UTF-8 support
 
-#### Quick Start With Minimum running example (Without checks)
-Check [main.c](./main.c) for more examples.
+#### Simple example
+**Check [main.c](./main.c) for more examples.**
 
 ```c
-//This bypasses inheriting memory from parent process on linux (glibc 2.24) but removes the ability to use RunDirectory.
-//See https://github.com/Neko-Box-Coder/System2/issues/3
-//#define SYSTEM2_POSIX_SPAWN 1
-
-//#define SYSTEM2_DECLARATION_ONLY 1
-
-//#define SYSTEM2_IMPLEMENTATION_ONLY 1
-
-
 #include "System2.h"
 #include <stdio.h>
 
-int main(int argc, char** argv) 
+int main(int, char**) 
 {
+    //Initialize command info
     System2CommandInfo commandInfo;
-    memset(&commandInfo, 0, sizeof(System2CommandInfo));
-    commandInfo.RedirectInput = true;
-    commandInfo.RedirectOutput = true;
+    {
+        memset(&commandInfo, 0, sizeof(System2CommandInfo));
+        commandInfo.RedirectInput = true;
+        commandInfo.RedirectOutput = true;
+    }
 
-    #if defined(__unix__) || defined(__APPLE__)
-        System2Run("read testVar && echo testVar is \\\"$testVar\\\"", &commandInfo);
-    #endif
+    //Run the command in shell (subprocess is also available, see main.c)
+    {
+        #if defined(__unix__) || defined(__APPLE__)
+            System2Run("read testVar && echo testVar is \\\"$testVar\\\"", &commandInfo);
+        #elif
+            System2Run("set /p testVar= && echo testVar is \"!testVar!\"", &commandInfo);
+        #endif
+    }
     
-    #if defined(_WIN32)
-        System2Run("set /p testVar= && echo testVar is \"!testVar!\"", &commandInfo);
-    #endif
+    //Send input to the command
+    {
+        char input[] = "test content\n";
+        System2WriteToInput(&commandInfo, input, sizeof(input));
+    }
     
-    char input[] = "test content\n";
-    System2WriteToInput(&commandInfo, input, sizeof(input));
-    
-    //Waiting here simulates the child process has "finished" and we read the output of it
-    //Sleep(2000);
-    
-    char outputBuffer[1024];
-    uint32_t bytesRead = 0;
-    
-    //System2ReadFromOutput can also return SYSTEM2_RESULT_READ_NOT_FINISHED if we have more to read
-    //In which case can use a do while loop to keep getting the output
-    System2ReadFromOutput(&commandInfo, outputBuffer, 1023, &bytesRead);
-    outputBuffer[bytesRead] = 0;
-    
+    //Wait for command to finish and get return code
     int returnCode = -1;
-    System2GetCommandReturnValueSync(&commandInfo, &returnCode, false);
+    System2GetCommandReturnValueSync(&commandInfo, &returnCode);
     
-    printf("%s\n", outputBuffer);
-    printf("%s: %d\n", "Command has executed with return value", returnCode);
+    //Capture output and print it
+    {
+        char outputBuffer[1024];
+        uint32_t bytesRead = 0;
+        
+        System2ReadFromOutput(&commandInfo, outputBuffer, 1023, &bytesRead);
+        outputBuffer[bytesRead] = 0;
+        
+        printf("%s\n", outputBuffer);
+        printf("%s: %d\n", "Command has executed with return value", returnCode);
+    }
     
+    System2CleanupCommand(&commandInfo);
     return 0;
     
-    //Output: Command has executed with return value: 0
     //Output: testVar is "test content"
+    //Output: Command has executed with return value: 0
 }
 ```
+
+#### Using System2 in your project
+
+This library has header only version, just include "System2.h" and you are good to go.
+
+However, this will leak system library headers to your codebase.
+
+In that case, you can use the source version of the library.
+
+1. Define `SYSTEM2_DECLARATION_ONLY 1` before including `System2.h`
+
+2. Then, either:
+    - Add `System2.c` to you codebase
+    - Or include `System2.h` in a single c file and define `SYSTEM2_IMPLEMENTATION_ONLY 1` before it
+    - Or link your project with `System2` target in CMake`
+
+- Posix spawn version is also available by defining `SYSTEM2_POSIX_SPAWN 1` before including, see
+https://github.com/Neko-Box-Coder/System2/issues/3 for more details
 
 #### API Documentation
 ```cpp
@@ -117,6 +126,8 @@ typedef struct
 Runs the command in system shell just like the `system()` funcion with the given settings 
 passed with `inOutCommandInfo`.
 
+`System2CleanupCommand()` should be called when you are done with it.
+
 This uses 
 `sh -c command` for POSIX and
 `cmd /s /v /c command` for Windows
@@ -140,6 +151,8 @@ Runs the executable (which can search in PATH env variable) with the given argum
 passed with inOutCommandInfo. Arguments are passed to the executable directly. 
 
 Passing `NULL` to `args` denotes no arguments.
+
+`System2CleanupCommand()` should be called when you are done with it.
 
 On Windows, automatic escaping can be removed by setting the `DisableEscape` in `inOutCommandInfo`
 
@@ -215,15 +228,6 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2CleanupCommand(const System2CommandInf
 Gets the return code if the command has finished.
 Otherwise, this will return SYSTEM2_RESULT_COMMAND_NOT_FINISHED immediately.
 
-If `manualCleanup` is false, 
-`System2CleanupCommand()` is automatically called when the command has exited.
-You should read/send any input/output first before trying to get the return value.
-
-If `manualCleanup` is true, you can read/send any input/output after getting the return value, but
-you need to call `System2CleanupCommand()` to cleanup the resource handle.
-
-Otherwise, `System2CleanupCommand()` should be called when the command has exited.
-
 Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_COMMAND_NOT_FINISHED
@@ -233,20 +237,10 @@ Could return the following results:
 - SYSTEM2_RESULT_INVALID_ARGUMENT
 */
 SYSTEM2_FUNC_PREFIX 
-SYSTEM2_RESULT System2GetCommandReturnValueAsync(   const System2CommandInfo* info, 
-                                                    int* outReturnCode,
-                                                    bool manualCleanup);
+SYSTEM2_RESULT System2GetCommandReturnValueAsync(const System2CommandInfo* info, int* outReturnCode);
 
 /*
 Wait for the command to finish and gets the return code
-
-If `manualCleanup` is false, 
-`System2CleanupCommand()` is automatically called when the command has exited.
-You should read/send any input/output first before trying to get the return value.
-
-If `manualCleanup` is true, you can read/send any input/output after getting the return value, but
-you need to call `System2CleanupCommand()` to cleanup the resource handle.
-
 
 Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
@@ -256,8 +250,7 @@ Could return the following results:
 - SYSTEM2_RESULT_INVALID_ARGUMENT
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System2CommandInfo* info, 
-                                                                    int* outReturnCode,
-                                                                    bool manualCleanup);
+                                                                    int* outReturnCode);
 
 /*
 Kills (cannot be caught) a spawned command.
@@ -348,8 +341,8 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2EnvironmentVariableFree(void** resourc
 Sets/unsets an environment variable where it is unset if `envValue` is `NULL`.
 `envName` must be valid for the platform otherwise this function will fail.
 
-If the environment variable with `envName` already exists when trying to set or not exists when 
-trying to unset, this function MIGHT fail depending on the platform.
+If the environment variable with `envName` does not exists when trying to unset, 
+this function MIGHT fail depending on the platform.
 
 To make sure the environement variable is correctly set, you should get the environment variable.
 
@@ -363,22 +356,6 @@ Could return the following results:
 SYSTEM2_FUNC_PREFIX 
 SYSTEM2_RESULT System2SetEnvironmentVariable(const char* envName, const char* envValue);
 ```
-
-
-#### Using System2 in your project
-
-This library has header only version, just include "System2.h" and you are good to go.
-
-However, this will leak system library headers to your codebase.
-
-In that case, you can use the source version of the library.
-
-1. Define `SYSTEM2_DECLARATION_ONLY 1` before including `System2.h`
-
-2. Then, either:
-    - Add `System2.c` to you codebase
-    - Or include `System2.h` in a single c file and define `SYSTEM2_IMPLEMENTATION_ONLY 1` before it
-    - Or link your project with `System2` target in CMake`
 
 ---
 #### Remarks

@@ -115,6 +115,8 @@ typedef enum
 Runs the command in system shell just like the `system()` funcion with the given settings 
 passed with `inOutCommandInfo`.
 
+`System2CleanupCommand()` should be called when you are done with it.
+
 This uses 
 `sh -c command` for POSIX and
 `cmd /s /v /c command` for Windows
@@ -138,6 +140,8 @@ Runs the executable (which can search in PATH env variable) with the given argum
 passed with inOutCommandInfo. Arguments are passed to the executable directly. 
 
 Passing `NULL` to `args` denotes no arguments.
+
+`System2CleanupCommand()` should be called when you are done with it.
 
 On Windows, automatic escaping can be removed by setting the `DisableEscape` in `inOutCommandInfo`
 
@@ -213,15 +217,6 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2CleanupCommand(const System2CommandInf
 Gets the return code if the command has finished.
 Otherwise, this will return SYSTEM2_RESULT_COMMAND_NOT_FINISHED immediately.
 
-If `manualCleanup` is false, 
-`System2CleanupCommand()` is automatically called when the command has exited.
-You should read/send any input/output first before trying to get the return value.
-
-If `manualCleanup` is true, you can read/send any input/output after getting the return value, but
-you need to call `System2CleanupCommand()` to cleanup the resource handle.
-
-Otherwise, `System2CleanupCommand()` should be called when the command has exited.
-
 Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_COMMAND_NOT_FINISHED
@@ -231,20 +226,10 @@ Could return the following results:
 - SYSTEM2_RESULT_INVALID_ARGUMENT
 */
 SYSTEM2_FUNC_PREFIX 
-SYSTEM2_RESULT System2GetCommandReturnValueAsync(   const System2CommandInfo* info, 
-                                                    int* outReturnCode,
-                                                    bool manualCleanup);
+SYSTEM2_RESULT System2GetCommandReturnValueAsync(const System2CommandInfo* info, int* outReturnCode);
 
 /*
 Wait for the command to finish and gets the return code
-
-If `manualCleanup` is false, 
-`System2CleanupCommand()` is automatically called when the command has exited.
-You should read/send any input/output first before trying to get the return value.
-
-If `manualCleanup` is true, you can read/send any input/output after getting the return value, but
-you need to call `System2CleanupCommand()` to cleanup the resource handle.
-
 
 Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
@@ -254,8 +239,7 @@ Could return the following results:
 - SYSTEM2_RESULT_INVALID_ARGUMENT
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System2CommandInfo* info, 
-                                                                    int* outReturnCode,
-                                                                    bool manualCleanup);
+                                                                    int* outReturnCode);
 
 /*
 Kills (cannot be caught) a spawned command.
@@ -346,8 +330,8 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2EnvironmentVariableFree(void** resourc
 Sets/unsets an environment variable where it is unset if `envValue` is `NULL`.
 `envName` must be valid for the platform otherwise this function will fail.
 
-If the environment variable with `envName` already exists when trying to set or not exists when 
-trying to unset, this function MIGHT fail depending on the platform.
+If the environment variable with `envName` does not exists when trying to unset, 
+this function MIGHT fail depending on the platform.
 
 To make sure the environement variable is correctly set, you should get the environment variable.
 
@@ -807,8 +791,7 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
     
     SYSTEM2_FUNC_PREFIX 
     SYSTEM2_RESULT System2GetCommandReturnValueAsyncPosix(  const System2CommandInfo* info, 
-                                                            int* outReturnCode,
-                                                            bool manualCleanup)
+                                                            int* outReturnCode)
     {
         if(!info || !outReturnCode)
             return SYSTEM2_RESULT_INVALID_ARGUMENT;
@@ -821,9 +804,6 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
         else if(pidResult == -1)
             return SYSTEM2_RESULT_COMMAND_WAIT_ASYNC_FAILED;
 
-        if(!manualCleanup)
-            System2CleanupCommandPosix(info);
-        
         if(!WIFEXITED(status))
         {
             *outReturnCode = -1;
@@ -836,8 +816,7 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
     
     SYSTEM2_FUNC_PREFIX 
     SYSTEM2_RESULT System2GetCommandReturnValueSyncPosix(   const System2CommandInfo* info, 
-                                                            int* outReturnCode,
-                                                            bool manualCleanup)
+                                                            int* outReturnCode)
     {
         if(!info || !outReturnCode)
             return SYSTEM2_RESULT_INVALID_ARGUMENT;
@@ -847,9 +826,6 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
         
         if(pidResult == -1)
             return SYSTEM2_RESULT_COMMAND_WAIT_SYNC_FAILED;
-        
-        if(!manualCleanup)
-            System2CleanupCommandPosix(info);
         
         if(!WIFEXITED(status))
         {
@@ -1680,8 +1656,7 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
     
     SYSTEM2_FUNC_PREFIX 
     SYSTEM2_RESULT System2GetCommandReturnValueAsyncWindows(const System2CommandInfo* info, 
-                                                            int* outReturnCode,
-                                                            bool manualCleanup)
+                                                            int* outReturnCode)
     {
         if(!info || !outReturnCode)
             return SYSTEM2_RESULT_INVALID_ARGUMENT;
@@ -1697,17 +1672,12 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
         }
 
         *outReturnCode = exitCode;
-        
-        if(!manualCleanup)
-            return System2CleanupCommandWindows(info);
-        else
-            return SYSTEM2_RESULT_SUCCESS;
+        return SYSTEM2_RESULT_SUCCESS;
     }
     
     SYSTEM2_FUNC_PREFIX 
     SYSTEM2_RESULT System2GetCommandReturnValueSyncWindows( const System2CommandInfo* info, 
-                                                            int* outReturnCode,
-                                                            bool manualCleanup)
+                                                            int* outReturnCode)
     {
         if(!info || !outReturnCode)
             return SYSTEM2_RESULT_INVALID_ARGUMENT;
@@ -1724,11 +1694,7 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
         }
         
         *outReturnCode = exitCode;
-        
-        if(!manualCleanup)
-            return System2CleanupCommandWindows(info);
-        else
-            return SYSTEM2_RESULT_SUCCESS;
+        return SYSTEM2_RESULT_SUCCESS;
     }
     
     SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2KillWindows(const System2CommandInfo* info)
@@ -2133,28 +2099,24 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2CleanupCommand(const System2CommandInf
 }
 
 SYSTEM2_FUNC_PREFIX 
-SYSTEM2_RESULT System2GetCommandReturnValueAsync(   const System2CommandInfo* info, 
-                                                    int* outReturnCode,
-                                                    bool manualCleanup)
+SYSTEM2_RESULT System2GetCommandReturnValueAsync(const System2CommandInfo* info, int* outReturnCode)
 {
     #if defined(__unix__) || defined(__APPLE__)
-        return System2GetCommandReturnValueAsyncPosix(info, outReturnCode, manualCleanup);
+        return System2GetCommandReturnValueAsyncPosix(info, outReturnCode);
     #elif defined(_WIN32)
-        return System2GetCommandReturnValueAsyncWindows(info, outReturnCode, manualCleanup);
+        return System2GetCommandReturnValueAsyncWindows(info, outReturnCode);
     #else
         return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM; 
     #endif
 }
 
 SYSTEM2_FUNC_PREFIX 
-SYSTEM2_RESULT System2GetCommandReturnValueSync(const System2CommandInfo* info, 
-                                                int* outReturnCode,
-                                                bool manualCleanup)
+SYSTEM2_RESULT System2GetCommandReturnValueSync(const System2CommandInfo* info, int* outReturnCode)
 {
     #if defined(__unix__) || defined(__APPLE__)
-        return System2GetCommandReturnValueSyncPosix(info, outReturnCode, manualCleanup);
+        return System2GetCommandReturnValueSyncPosix(info, outReturnCode);
     #elif defined(_WIN32)
-        return System2GetCommandReturnValueSyncWindows(info, outReturnCode, manualCleanup);
+        return System2GetCommandReturnValueSyncWindows(info, outReturnCode);
     #else
         return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM; 
     #endif

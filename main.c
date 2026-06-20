@@ -13,10 +13,61 @@
 #include "System2.h"
 #include <stdio.h>
 
+#if SYSTEM2_MIN_EXAMPLE
+//This is the readme example
+int main(int, char**) 
+{
+    //Initialize command info
+    System2CommandInfo commandInfo;
+    {
+        memset(&commandInfo, 0, sizeof(System2CommandInfo));
+        commandInfo.RedirectInput = true;
+        commandInfo.RedirectOutput = true;
+    }
+
+    //Run the command in shell (subprocess is also available, see main.c)
+    {
+        #if defined(__unix__) || defined(__APPLE__)
+            System2Run("read testVar && echo testVar is \\\"$testVar\\\"", &commandInfo);
+        #elif
+            System2Run("set /p testVar= && echo testVar is \"!testVar!\"", &commandInfo);
+        #endif
+    }
+    
+    //Send input to the command
+    {
+        char input[] = "test content\n";
+        System2WriteToInput(&commandInfo, input, sizeof(input));
+    }
+    
+    //Wait for command to finish and get return code
+    int returnCode = -1;
+    System2GetCommandReturnValueSync(&commandInfo, &returnCode);
+    
+    //Capture output and print it
+    {
+        char outputBuffer[1024];
+        uint32_t bytesRead = 0;
+        
+        System2ReadFromOutput(&commandInfo, outputBuffer, 1023, &bytesRead);
+        outputBuffer[bytesRead] = 0;
+        
+        printf("%s\n", outputBuffer);
+        printf("%s: %d\n", "Command has executed with return value", returnCode);
+    }
+    
+    System2CleanupCommand(&commandInfo);
+    return 0;
+    
+    //Output: testVar is "test content"
+    //Output: Command has executed with return value: 0
+}
+
+#else //#if SYSTEM2_MIN_EXAMPLE
+
 #if SYSTEM2_TEST_MEMORY
     #include <stdlib.h>
 #endif
-
 
 System2CommandInfo RedirectIOExample(void);
 void ReadRedirectedIOExample(System2CommandInfo commandInfo);
@@ -28,11 +79,8 @@ void ReadEnvVarsExample(void);
 void TermExample(void);
 void KillExample(void);
 
-int main(int argc, char** argv) 
+int main(int, char**) 
 {
-    (void)argc;
-    (void)argv;
-    
     #if SYSTEM2_TEST_MEMORY
         void* testMem = malloc(50 * 1024 * 1024); //Test 50 MB
         memset(testMem, 1, 50 * 1024 * 1024);
@@ -111,8 +159,7 @@ void ReadRedirectedIOExample(System2CommandInfo commandInfo)
     //Output: 1st command has finished with return value: : 0
     
     int returnCode = -1;
-    //True to perform manual cleanup
-    SYSTEM2_RESULT result = System2GetCommandReturnValueAsync(&commandInfo, &returnCode, true);
+    SYSTEM2_RESULT result = System2GetCommandReturnValueAsync(&commandInfo, &returnCode);
     
     if(result == SYSTEM2_RESULT_SUCCESS)
     {
@@ -157,7 +204,10 @@ void BlockedCommandExample(void)
     EXIT_IF_FAILED(result);
     
     int returnCode = -1;
-    result = System2GetCommandReturnValueSync(&commandInfo, &returnCode, false);
+    result = System2GetCommandReturnValueSync(&commandInfo, &returnCode);
+    EXIT_IF_FAILED(result);
+    
+    result = System2CleanupCommand(&commandInfo);
     EXIT_IF_FAILED(result);
 }
 
@@ -183,10 +233,13 @@ void StdinStdoutExample(void)
     EXIT_IF_FAILED(result);
     
     int returnCode = -1;
-    result = System2GetCommandReturnValueSync(&commandInfo, &returnCode, false);
+    result = System2GetCommandReturnValueSync(&commandInfo, &returnCode);
     EXIT_IF_FAILED(result);
     
     printf("%s: %d\n", "Command has executed with return value", returnCode);
+    
+    result = System2CleanupCommand(&commandInfo);
+    EXIT_IF_FAILED(result);
 }
 
 void RunWithEnvExample(void)
@@ -213,7 +266,10 @@ void RunWithEnvExample(void)
     EXIT_IF_FAILED(result);
     
     int returnCode = -1;
-    result = System2GetCommandReturnValueSync(&commandInfo, &returnCode, false);
+    result = System2GetCommandReturnValueSync(&commandInfo, &returnCode);
+    EXIT_IF_FAILED(result);
+    
+    result = System2CleanupCommand(&commandInfo);
     EXIT_IF_FAILED(result);
 }
 
@@ -286,7 +342,7 @@ void TermExample(void)
     sleep(1);
     
     int returnCode = -1;
-    result = System2GetCommandReturnValueAsync(&commandInfo, &returnCode, true);
+    result = System2GetCommandReturnValueAsync(&commandInfo, &returnCode);
     printf( "GetCommandReturnValue Result after System2Term is %d, returnCode is %d\n",  
             (int)result, 
             returnCode);
@@ -319,7 +375,7 @@ void KillExample(void)
     sleep(1);
     
     int returnCode = -1;
-    result = System2GetCommandReturnValueAsync(&commandInfo, &returnCode, true);
+    result = System2GetCommandReturnValueAsync(&commandInfo, &returnCode);
     printf( "GetCommandReturnValue Result after System2Kill is %d, returnCode is %d\n",  
             (int)result, 
             returnCode);
@@ -327,3 +383,5 @@ void KillExample(void)
     result = System2CleanupCommand(&commandInfo);
     EXIT_IF_FAILED(result);
 }
+
+#endif //#else

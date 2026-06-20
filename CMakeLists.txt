@@ -9,6 +9,7 @@ set(SYSTEM2_USE_SOURCE OFF CACHE BOOL "Build source version of System2")
 set(SYSTEM2_POSIX_SPAWN OFF CACHE BOOL "Use posix_spawn() instead of fork()")
 set(SYSTEM2_TEST_MEMORY OFF CACHE BOOL "Test memory commitment")
 set(SYSTEM2_BUILD_EXAMPLES OFF CACHE BOOL "Build System2 examples?")
+set(SYSTEM2_MIN_EXAMPLES OFF CACHE BOOL "Build minimum(readme) example instead?")
 
 if(SYSTEM2_USE_SOURCE)
     add_library(System2 "${CMAKE_CURRENT_LIST_DIR}/System2.c")
@@ -45,14 +46,9 @@ endif()
 if(SYSTEM2_BUILD_EXAMPLES)
     add_executable(System2Example "${CMAKE_CURRENT_LIST_DIR}/main.c")
     
-    if(SYSTEM2_USE_SOURCE)
-        target_compile_definitions(System2Example PRIVATE SYSTEM2_USE_SOURCE=1)
-    endif()
-    
-    if(SYSTEM2_TEST_MEMORY)
-        target_compile_definitions(System2Example PRIVATE SYSTEM2_TEST_MEMORY=1)
-    endif()
-    
+    target_compile_definitions(System2Example PRIVATE   $<$<BOOL:${SYSTEM2_USE_SOURCE}>:SYSTEM2_USE_SOURCE=1>
+                                                        $<$<BOOL:${SYSTEM2_TEST_MEMORY}>:SYSTEM2_TEST_MEMORY=1>
+                                                        $<$<BOOL:${SYSTEM2_MIN_EXAMPLE}>:SYSTEM2_MIN_EXAMPLE=1>)
     target_link_libraries(System2Example System2)
 endif()
 
