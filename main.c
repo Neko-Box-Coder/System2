@@ -15,8 +15,11 @@
 
 #if SYSTEM2_MIN_EXAMPLE
 //This is the readme example
-int main(int, char**) 
+int main(int argc, char** argv) 
 {
+    (void)argc;
+    (void)argv;
+    
     //Initialize command info
     System2CommandInfo commandInfo;
     {
@@ -69,6 +72,7 @@ int main(int, char**)
     #include <stdlib.h>
 #endif
 
+void RunSubprocessExample(void);
 System2CommandInfo RedirectIOExample(void);
 void ReadRedirectedIOExample(System2CommandInfo commandInfo);
 void BlockedCommandExample(void);
@@ -79,12 +83,17 @@ void ReadEnvVarsExample(void);
 void TermExample(void);
 void KillExample(void);
 
-int main(int, char**) 
+int main(int argc, char** argv) 
 {
+    (void)argc;
+    (void)argv;
+    
     #if SYSTEM2_TEST_MEMORY
         void* testMem = malloc(50 * 1024 * 1024); //Test 50 MB
         memset(testMem, 1, 50 * 1024 * 1024);
     #endif
+    
+    RunSubprocessExample();
     
     //Execute the first command
     System2CommandInfo commandInfo = RedirectIOExample();
@@ -122,6 +131,35 @@ int main(int, char**)
 
 
 #define FUNC_HEADER() printf("\n\n---------------------\n%s\n---------------------\n", __func__)
+
+void RunSubprocessExample(void)
+{
+    FUNC_HEADER();
+    
+    System2CommandInfo commandInfo;
+    
+    memset(&commandInfo, 0, sizeof(System2CommandInfo));
+    commandInfo.RunDirectory = "..";
+    SYSTEM2_RESULT result;
+    #if defined(__unix__) || defined(__APPLE__)
+        const char* args[] = {"-r", "-i", "--include", "*.c", "main"};
+        result = System2RunSubprocess("grep", args, sizeof(args) / sizeof(char*), &commandInfo);
+    #endif
+    
+    #if defined(_WIN32)
+        const char* args[] = {"/s", "/i", "main", "*.c"};
+        result = System2RunSubprocess("findstr", args, sizeof(args) / sizeof(char*), &commandInfo);
+    #endif
+    
+    EXIT_IF_FAILED(result);
+    
+    int returnCode = -1;
+    result = System2GetCommandReturnValueSync(&commandInfo, &returnCode);
+    EXIT_IF_FAILED(result);
+    
+    result = System2CleanupCommand(&commandInfo);
+    EXIT_IF_FAILED(result);
+}
 
 System2CommandInfo RedirectIOExample(void)
 {
