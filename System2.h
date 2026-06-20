@@ -86,6 +86,7 @@ typedef enum
 
 typedef enum
 {
+    SYSTEM2_RESULT_WINDOWS_TERM_NO_WINDOW = 4,
     SYSTEM2_RESULT_COMMAND_TERMINATED = 3,
     SYSTEM2_RESULT_COMMAND_NOT_FINISHED = 2,
     SYSTEM2_RESULT_READ_NOT_FINISHED = 1,
@@ -106,6 +107,8 @@ typedef enum
     SYSTEM2_RESULT_MALLOC_FAILED = -14,
     SYSTEM2_RESULT_WINDOWS_UNICODE_FAILED = -15,
     SYSTEM2_RESULT_WINDOWS_SET_ENV_FAILED = -16,
+    SYSTEM2_RESULT_KILL_FAILED = -17,
+    SYSTEM2_RESULT_TERM_FAILED = -18,
 } SYSTEM2_RESULT;
 
 /*
@@ -116,7 +119,7 @@ This uses
 `sh -c command` for POSIX and
 `cmd /s /v /c command` for Windows
 
-Could return the following result:
+Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_PIPE_CREATE_FAILED
 - SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED
@@ -141,7 +144,7 @@ On Windows, automatic escaping can be removed by setting the `DisableEscape` in 
 NOTE: Unlike posix exec* function calls, you don't need to pass the path of executable to `args`. 
 This is handled internally.
 
-Could return the following result:
+Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_PIPE_CREATE_FAILED
 - SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED
@@ -169,7 +172,7 @@ this function can be called again until SYSTEM2_RESULT_SUCCESS to retrieve the r
 
 outBytesRead determines how many bytes have been read for **this** function call
 
-Could return the following result:
+Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_READ_NOT_FINISHED
 - SYSTEM2_RESULT_READ_FAILED
@@ -183,7 +186,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2ReadFromOutput(   const System2Command
 /*
 Write the input (stdin) to the command. 
 
-Could return the following result:
+Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_WRITE_FAILED
 - SYSTEM2_RESULT_INVALID_ARGUMENT
@@ -199,7 +202,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2WriteToInput( const System2CommandInfo
 /*
 Cleanup any open handles associated with the command.
 
-Could return the following result:
+Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED
 - SYSTEM2_RESULT_INVALID_ARGUMENT
@@ -219,7 +222,7 @@ you need to call `System2CleanupCommand()` to cleanup the resource handle.
 
 Otherwise, `System2CleanupCommand()` should be called when the command has exited.
 
-Could return the following result:
+Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_COMMAND_NOT_FINISHED
 - SYSTEM2_RESULT_COMMAND_TERMINATED
@@ -243,7 +246,7 @@ If `manualCleanup` is true, you can read/send any input/output after getting the
 you need to call `System2CleanupCommand()` to cleanup the resource handle.
 
 
-Could return the following result:
+Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_COMMAND_TERMINATED
 - SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED
@@ -255,6 +258,44 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System
                                                                     bool manualCleanup);
 
 /*
+Kills (cannot be caught) a spawned command.
+
+NOTE: On Posix, this will cause `System2GetCommandReturnValue*` to return 
+      `SYSTEM2_RESULT_COMMAND_TERMINATED`. 
+      While on Windows, `SYSTEM2_RESULT_SUCCESS` will be returned instead.
+
+Could return the following results:
+- SYSTEM2_RESULT_SUCCESS
+- SYSTEM2_RESULT_INVALID_ARGUMENT
+- SYSTEM2_RESULT_KILL_FAILED
+*/
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2Kill(const System2CommandInfo* info);
+
+
+/*
+Terminates a spawned command. 
+
+NOTE: This has no guarantee that the command is terminated even if the returned value is 
+      `SYSTEM2_RESULT_SUCCESS`. You should always check the status of the command with 
+      `System2GetCommandReturnValue*`.
+
+NOTE: On Posix, this will cause `System2GetCommandReturnValue*` to return 
+      `SYSTEM2_RESULT_COMMAND_TERMINATED`. 
+      While on Windows, `SYSTEM2_RESULT_SUCCESS` will be returned instead.
+
+NOTE: This will fail with `SYSTEM2_RESULT_WINDOWS_TERM_NO_WINDOW` on Windows if the spawned command 
+      has no window handle. In which case, you will need to kill it instead.
+
+Could return the following results:
+- SYSTEM2_RESULT_SUCCESS
+- SYSTEM2_RESULT_INVALID_ARGUMENT
+- SYSTEM2_RESULT_TERM_FAILED
+- SYSTEM2_RESULT_WINDOWS_TERM_NO_WINDOW
+- SYSTEM2_RESULT_MALLOC_FAILED
+*/
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2Term(const System2CommandInfo* info);
+
+/*
 Returns the count of environment variables, along with a resource handle which can be used to 
 access the environment variable values with `System2GetEnvironmentVariables()`.
 
@@ -263,7 +304,7 @@ The resource handle should be freed with `System2EnvironmentVariableFree()` when
 NOTE: If you need to get a particular environment variable without iteration, use `getenv()` from the
       standard library.
 
-Could return the following result:
+Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_INVALID_ARGUMENT
 - SYSTEM2_RESULT_MALLOC_FAILED
@@ -281,7 +322,7 @@ immediately as changes to the environment variable might invalidate them.
 NOTE: If you need to get a particular environment variable without iteration, use `getenv()` from the
       standard library.
 
-Could return the following result:
+Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_INVALID_ARGUMENT
 */
@@ -295,7 +336,7 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetEnvironmentVariable(   const void* 
 /*
 Free the resource handle created by `System2GetEnvironmentVariablesCount()` and set it to NULL.
 
-Could return the following result:
+Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_INVALID_ARGUMENT
 */
@@ -310,7 +351,7 @@ trying to unset, this function MIGHT fail depending on the platform.
 
 To make sure the environement variable is correctly set, you should get the environment variable.
 
-Could return the following result:
+Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_INVALID_ARGUMENT
 - SYSTEM2_RESULT_WINDOWS_UNICODE_FAILED
@@ -360,6 +401,7 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
 }
 
 #if defined(__unix__) || defined(__APPLE__)
+    #include <signal.h>
     #include <sys/wait.h>
     extern char** environ;
     
@@ -819,6 +861,30 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
         return SYSTEM2_RESULT_SUCCESS;
     }
     
+    SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2KillPosix(const System2CommandInfo* info)
+    {
+        if(!info)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
+        int result = kill(info->ChildProcessID, SIGKILL);
+        if(result == 0)
+            return SYSTEM2_RESULT_SUCCESS;
+        else
+            return SYSTEM2_RESULT_KILL_FAILED;
+    }
+    
+    SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2TermPosix(const System2CommandInfo* info)
+    {
+        if(!info)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
+        int result = kill(info->ChildProcessID, SIGTERM);
+        if(result == 0)
+            return SYSTEM2_RESULT_SUCCESS;
+        else
+            return SYSTEM2_RESULT_TERM_FAILED;
+    }
+    
     typedef struct
     {
         char** Envs;
@@ -944,6 +1010,7 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
 
 #if defined(_WIN32)
     #include <strsafe.h>
+    #include <tlhelp32.h>
     
     SYSTEM2_FUNC_PREFIX void PrintError(LPCTSTR lpszFunction)
     { 
@@ -1664,6 +1731,131 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
             return SYSTEM2_RESULT_SUCCESS;
     }
     
+    SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2KillWindows(const System2CommandInfo* info)
+    {
+        if(!info)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
+        if(TerminateProcess(info->ChildProcessHandle, 137) != 0)
+            return SYSTEM2_RESULT_SUCCESS;
+        else
+            return SYSTEM2_RESULT_KILL_FAILED;
+        
+    }
+    
+    typedef struct Internal_System2EnumStatus
+    {
+        DWORD TargetProcessId;
+        bool Found;
+    } Internal_System2EnumStatus;
+    
+    static BOOL CALLBACK Internal_System2EnumWindowsProc(HWND hwnd, LPARAM lParam)
+    {
+        DWORD processId;
+        GetWindowThreadProcessId(hwnd, &processId);
+
+        if(((Internal_System2EnumStatus*)lParam)->TargetProcessId == processId)
+        {
+            PostMessage(hwnd, WM_CLOSE, 0, 0);
+            ((Internal_System2EnumStatus*)lParam)->Found = true;
+        }
+        return true;
+    }
+
+    SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2TermWindows(const System2CommandInfo* info)
+    {
+        if(!info)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
+        Internal_System2EnumStatus enumStatus;
+        memset(&enumStatus, 0, sizeof(Internal_System2EnumStatus));
+        enumStatus.TargetProcessId = GetProcessId(info->ChildProcessHandle);
+        if(!enumStatus.TargetProcessId)
+            return SYSTEM2_RESULT_TERM_FAILED;
+        
+        EnumWindows(&Internal_System2EnumWindowsProc, (LPARAM)&enumStatus);
+        if(enumStatus.Found)
+            return SYSTEM2_RESULT_SUCCESS;
+        
+        //If we haven't found any windows associates with the process, try again with its children if
+        //it is cmd.exe
+        {
+            HANDLE snapshotHandle = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+            if(!snapshotHandle)
+                return SYSTEM2_RESULT_WINDOWS_TERM_NO_WINDOW;
+            
+            PROCESSENTRY32 pe32;
+            pe32.dwSize = sizeof(PROCESSENTRY32);
+            if(Process32First(snapshotHandle, &pe32) == 0)
+            {
+                CloseHandle(snapshotHandle);
+                return SYSTEM2_RESULT_WINDOWS_TERM_NO_WINDOW;
+            }
+            
+            bool isCmd = false;
+            bool found = false;
+            int childCap = 4;
+            DWORD* childProcessesIds = (DWORD*)malloc(sizeof(DWORD) * childCap);
+            if(!childProcessesIds)
+            {
+                CloseHandle(snapshotHandle);
+                free(childProcessesIds);
+                return SYSTEM2_RESULT_MALLOC_FAILED;
+            }
+            int childCount = 0;
+            
+            do
+            {
+                if(pe32.th32ProcessID == enumStatus.TargetProcessId)
+                {
+                    if(strcmp(pe32.szExeFile, "cmd.exe") == 0)
+                        isCmd = true;
+                    found = true;
+                }
+                else if(pe32.th32ParentProcessID == enumStatus.TargetProcessId)
+                {
+                    if(childCount + 1 > childCap)
+                    {
+                        DWORD* tmp = (DWORD*)realloc(childProcessesIds, childCap * 2);
+                        if(!tmp)
+                        {
+                            CloseHandle(snapshotHandle);
+                            free(childProcessesIds);
+                            return SYSTEM2_RESULT_MALLOC_FAILED;
+                        }
+                        childProcessesIds = tmp;
+                    }
+                    childProcessesIds[childCount++] = pe32.th32ProcessID;
+                }
+            }
+            while(Process32Next(snapshotHandle, &pe32));
+            CloseHandle(snapshotHandle);
+            
+            //It is running under cmd, try closing the child instead
+            {
+                if(!isCmd)
+                {
+                    free(childProcessesIds);
+                    return SYSTEM2_RESULT_WINDOWS_TERM_NO_WINDOW;
+                }
+                
+                bool closedSomething = false;
+                for(int i = 0; i < childCount; ++i)
+                {
+                    enumStatus.TargetProcessId = childProcessesIds[i];
+                    EnumWindows(&Internal_System2EnumWindowsProc, (LPARAM)&enumStatus);
+                    if(enumStatus.Found)
+                        closedSomething = true;
+                }
+                free(childProcessesIds);
+                if(closedSomething)
+                    return SYSTEM2_RESULT_SUCCESS;
+                else
+                    return SYSTEM2_RESULT_WINDOWS_TERM_NO_WINDOW;
+            }
+        }
+    }
+    
     SYSTEM2_FUNC_PREFIX char* Internal_System2GetEnvStringWindows()
     {
         wchar_t* envStrings = GetEnvironmentStringsW();
@@ -2024,6 +2216,28 @@ SYSTEM2_RESULT System2SetEnvironmentVariable(const char* envName, const char* en
         return System2SetEnvironmentVariablePosix(envName, envValue);
     #elif defined(_WIN32)
         return System2SetEnvironmentVariableWindows(envName, envValue);
+    #else
+        return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM;
+    #endif
+}
+
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2Kill(const System2CommandInfo* info)
+{
+    #if defined(__unix__) || defined(__APPLE__)
+        return System2KillPosix(info);
+    #elif defined(_WIN32)
+        return System2KillWindows(info);
+    #else
+        return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM;
+    #endif
+}
+
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2Term(const System2CommandInfo* info)
+{
+    #if defined(__unix__) || defined(__APPLE__)
+        return System2TermPosix(info);
+    #elif defined(_WIN32)
+        return System2TermWindows(info);
     #else
         return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM;
     #endif

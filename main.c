@@ -25,7 +25,8 @@ void StdinStdoutExample(void);
 void RunWithEnvExample(void);
 void SetEnvVarsExample(void);
 void ReadEnvVarsExample(void);
-
+void TermExample(void);
+void KillExample(void);
 
 int main(int argc, char** argv) 
 {
@@ -57,8 +58,9 @@ int main(int argc, char** argv)
     
     SetEnvVarsExample();
     ReadEnvVarsExample();
-    
     RunWithEnvExample();
+    TermExample();
+    KillExample();
     
     return 0;
 }
@@ -223,6 +225,10 @@ void SetEnvVarsExample(void)
     EXIT_IF_FAILED(result);
 }
 
+#if defined(_WIN32)
+    #define sleep(x) Sleep(1000 * (x))
+#endif
+
 void ReadEnvVarsExample(void)
 {
     FUNC_HEADER();
@@ -251,5 +257,73 @@ void ReadEnvVarsExample(void)
     }
     
     result = System2EnvironmentVariableFree(&resource);
+    EXIT_IF_FAILED(result);
+}
+
+void TermExample(void)
+{
+    FUNC_HEADER();
+    
+    System2CommandInfo commandInfo;
+    memset(&commandInfo, 0, sizeof(System2CommandInfo));
+    SYSTEM2_RESULT result;
+
+    #if defined(__unix__) || defined(__APPLE__)
+        result = System2Run("sleep 2; echo Hello", &commandInfo);
+    #endif
+    
+    #if defined(_WIN32)
+        result = System2Run("notepad.exe", &commandInfo);
+    #endif
+    
+    EXIT_IF_FAILED(result);
+    
+    sleep(1);
+    
+    result = System2Term(&commandInfo);
+    EXIT_IF_FAILED(result);
+    
+    sleep(1);
+    
+    int returnCode = -1;
+    result = System2GetCommandReturnValueAsync(&commandInfo, &returnCode, true);
+    printf( "GetCommandReturnValue Result after System2Term is %d, returnCode is %d\n",  
+            (int)result, 
+            returnCode);
+    
+    result = System2CleanupCommand(&commandInfo);
+    EXIT_IF_FAILED(result);
+}
+
+void KillExample(void)
+{
+    FUNC_HEADER();
+    
+    System2CommandInfo commandInfo;
+    memset(&commandInfo, 0, sizeof(System2CommandInfo));
+    SYSTEM2_RESULT result;
+
+    #if defined(__unix__) || defined(__APPLE__)
+        result = System2Run("sleep 2; echo Hello", &commandInfo);
+    #endif
+    
+    #if defined(_WIN32)
+        result = System2Run("ping localhost -n 3 > nul & echo Hello", &commandInfo);
+    #endif
+    
+    sleep(1);
+    
+    result = System2Kill(&commandInfo);
+    EXIT_IF_FAILED(result);
+    
+    sleep(1);
+    
+    int returnCode = -1;
+    result = System2GetCommandReturnValueAsync(&commandInfo, &returnCode, true);
+    printf( "GetCommandReturnValue Result after System2Kill is %d, returnCode is %d\n",  
+            (int)result, 
+            returnCode);
+    
+    result = System2CleanupCommand(&commandInfo);
     EXIT_IF_FAILED(result);
 }
