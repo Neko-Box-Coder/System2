@@ -50,6 +50,14 @@ if(SYSTEM2_BUILD_EXAMPLES)
                                                         $<$<BOOL:${SYSTEM2_TEST_MEMORY}>:SYSTEM2_TEST_MEMORY=1>
                                                         $<$<BOOL:${SYSTEM2_MIN_EXAMPLE}>:SYSTEM2_MIN_EXAMPLE=1>)
     target_link_libraries(System2Example System2)
+    
+    add_executable(System2ExampleCpp "${CMAKE_CURRENT_LIST_DIR}/main.cpp")
+    
+    target_compile_definitions(System2ExampleCpp PRIVATE    $<$<BOOL:${SYSTEM2_USE_SOURCE}>:SYSTEM2_USE_SOURCE=1>
+                                                            $<$<BOOL:${SYSTEM2_TEST_MEMORY}>:SYSTEM2_TEST_MEMORY=1>
+                                                            $<$<BOOL:${SYSTEM2_MIN_EXAMPLE}>:SYSTEM2_MIN_EXAMPLE=1>)
+    target_link_libraries(System2ExampleCpp System2)
+    set_target_properties(System2ExampleCpp PROPERTIES CXX_STANDARD 11)
 endif()
 
 

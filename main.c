@@ -45,7 +45,7 @@ int main(int argc, char** argv)
     
     //Wait for command to finish and get return code
     int returnCode = -1;
-    System2GetCommandReturnValueSync(&commandInfo, &returnCode);
+    System2GetCommandReturnValue(&commandInfo, -1, &returnCode);
     
     //Capture output and print it
     {
@@ -74,7 +74,7 @@ int main(int argc, char** argv)
 
 void RunSubprocessExample(void);
 System2CommandInfo RedirectIOExample(void);
-void ReadRedirectedIOExample(System2CommandInfo commandInfo);
+void ReadRedirectedIOAsyncExample(System2CommandInfo commandInfo);
 void BlockedCommandExample(void);
 void StdinStdoutExample(void);
 void RunWithEnvExample(void);
@@ -82,6 +82,7 @@ void SetEnvVarsExample(void);
 void ReadEnvVarsExample(void);
 void TermExample(void);
 void KillExample(void);
+void TimeoutExample(void);
 
 int main(int argc, char** argv) 
 {
@@ -93,7 +94,9 @@ int main(int argc, char** argv)
         memset(testMem, 1, 50 * 1024 * 1024);
     #endif
     
-    RunSubprocessExample();
+    #if !SYSTEM2_POSIX_SPAWN
+        RunSubprocessExample();
+    #endif
     
     //Execute the first command
     System2CommandInfo commandInfo = RedirectIOExample();
@@ -103,7 +106,7 @@ int main(int argc, char** argv)
     BlockedCommandExample();
     
     //The first command should be finish by now.
-    ReadRedirectedIOExample(commandInfo);
+    ReadRedirectedIOAsyncExample(commandInfo);
     memset(&commandInfo, 0, sizeof(commandInfo));
     
     //If you don't do redirect, it will directly use stdin and stdout instead
@@ -118,6 +121,7 @@ int main(int argc, char** argv)
     RunWithEnvExample();
     TermExample();
     KillExample();
+    TimeoutExample();
     
     return 0;
 }
@@ -154,7 +158,7 @@ void RunSubprocessExample(void)
     EXIT_IF_FAILED(result);
     
     int returnCode = -1;
-    result = System2GetCommandReturnValueSync(&commandInfo, &returnCode);
+    result = System2GetCommandReturnValue(&commandInfo, -1, &returnCode);
     EXIT_IF_FAILED(result);
     
     result = System2CleanupCommand(&commandInfo);
@@ -172,11 +176,11 @@ System2CommandInfo RedirectIOExample(void)
     SYSTEM2_RESULT result;
 
     #if defined(__unix__) || defined(__APPLE__)
-        result = System2Run("sleep 1; read testVar && echo testVar is \\\"$testVar\\\"", &commandInfo);
+        result = System2Run("sleep 3; read testVar && echo testVar is \\\"$testVar\\\"", &commandInfo);
     #endif
     
     #if defined(_WIN32)
-        result = System2Run("ping localhost -n 2 > nul & set /p testVar= && "
+        result = System2Run("ping localhost -n 4 > nul & set /p testVar= && "
                             "echo testVar is \"!testVar!\"", &commandInfo);
     #endif
     
@@ -189,7 +193,7 @@ System2CommandInfo RedirectIOExample(void)
     return commandInfo;
 }
 
-void ReadRedirectedIOExample(System2CommandInfo commandInfo)
+void ReadRedirectedIOAsyncExample(System2CommandInfo commandInfo)
 {
     FUNC_HEADER();
     
@@ -197,7 +201,13 @@ void ReadRedirectedIOExample(System2CommandInfo commandInfo)
     //Output: 1st command has finished with return value: : 0
     
     int returnCode = -1;
-    SYSTEM2_RESULT result = System2GetCommandReturnValueAsync(&commandInfo, &returnCode);
+    SYSTEM2_RESULT result = System2GetCommandReturnValue(&commandInfo, 0, &returnCode);
+    while(result == SYSTEM2_RESULT_COMMAND_NOT_FINISHED)
+    {
+        printf("1st command not yet finished\n");
+        sleep(3);
+        result = System2GetCommandReturnValue(&commandInfo, 0, &returnCode);
+    }
     
     if(result == SYSTEM2_RESULT_SUCCESS)
     {
@@ -214,8 +224,6 @@ void ReadRedirectedIOExample(System2CommandInfo commandInfo)
         
         printf("%s: %d\n", "1st command has finished with return value", returnCode);
     }
-    else if(result == SYSTEM2_RESULT_COMMAND_NOT_FINISHED)
-        printf("1st command not yet finished");
     else
         EXIT_IF_FAILED(result);
     
@@ -242,7 +250,7 @@ void BlockedCommandExample(void)
     EXIT_IF_FAILED(result);
     
     int returnCode = -1;
-    result = System2GetCommandReturnValueSync(&commandInfo, &returnCode);
+    result = System2GetCommandReturnValue(&commandInfo, -1, &returnCode);
     EXIT_IF_FAILED(result);
     
     result = System2CleanupCommand(&commandInfo);
@@ -271,7 +279,7 @@ void StdinStdoutExample(void)
     EXIT_IF_FAILED(result);
     
     int returnCode = -1;
-    result = System2GetCommandReturnValueSync(&commandInfo, &returnCode);
+    result = System2GetCommandReturnValue(&commandInfo, -1, &returnCode);
     EXIT_IF_FAILED(result);
     
     printf("%s: %d\n", "Command has executed with return value", returnCode);
@@ -304,7 +312,7 @@ void RunWithEnvExample(void)
     EXIT_IF_FAILED(result);
     
     int returnCode = -1;
-    result = System2GetCommandReturnValueSync(&commandInfo, &returnCode);
+    result = System2GetCommandReturnValue(&commandInfo, -1, &returnCode);
     EXIT_IF_FAILED(result);
     
     result = System2CleanupCommand(&commandInfo);
@@ -380,7 +388,7 @@ void TermExample(void)
     sleep(1);
     
     int returnCode = -1;
-    result = System2GetCommandReturnValueAsync(&commandInfo, &returnCode);
+    result = System2GetCommandReturnValue(&commandInfo, 0, &returnCode);
     printf( "GetCommandReturnValue Result after System2Term is %d, returnCode is %d\n",  
             (int)result, 
             returnCode);
@@ -413,13 +421,46 @@ void KillExample(void)
     sleep(1);
     
     int returnCode = -1;
-    result = System2GetCommandReturnValueAsync(&commandInfo, &returnCode);
+    result = System2GetCommandReturnValue(&commandInfo, 0, &returnCode);
     printf( "GetCommandReturnValue Result after System2Kill is %d, returnCode is %d\n",  
             (int)result, 
             returnCode);
     
     result = System2CleanupCommand(&commandInfo);
     EXIT_IF_FAILED(result);
+}
+
+void TimeoutExample(void)
+{
+    FUNC_HEADER();
+    
+    System2CommandInfo commandInfo;
+    memset(&commandInfo, 0, sizeof(System2CommandInfo));
+    SYSTEM2_RESULT result;
+
+    #if defined(__unix__) || defined(__APPLE__)
+        result = System2Run("sleep 4; echo Hello", &commandInfo);
+    #endif
+    
+    #if defined(_WIN32)
+        result = System2Run("ping localhost -n 5 > nul & echo Hello", &commandInfo);
+    #endif
+    
+    EXIT_IF_FAILED(result);
+    
+    printf("Trying to wait for command to finish with 2 seconds timeout...\n");
+    int returnCode = -1;
+    result = System2GetCommandReturnValue(&commandInfo, 2, &returnCode);
+    printf( "GetCommandReturnValue Result after System2Term is %d, returnCode is %d\n",  
+            (int)result, 
+            returnCode);
+    
+    result = System2CleanupCommand(&commandInfo);
+    EXIT_IF_FAILED(result);
+    
+    printf("Hello should be printed now even after we have cleaned up the command info\n");
+    
+    sleep(3);
 }
 
 #endif //#else

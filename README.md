@@ -19,7 +19,7 @@ provide input to stdin and capture the output from stdout and stderr.
 - Written in C99, and is ready to be used in C++ as well
 - Cross-platform (POSIX and Windows)
 - Command interaction with stdin, stdout, and stderr
-- Blocking (sync) and non-blocking (async) version
+- Timeout when getting command result, sync/async operations
 - Termintating commands early
 - Custom Environment Variables Support
 - No dependencies (only standard C and system libraries).
@@ -36,8 +36,11 @@ provide input to stdin and capture the output from stdout and stderr.
 #include "System2.h"
 #include <stdio.h>
 
-int main(int, char**) 
+int main(int argc, char** argv) 
 {
+    (void)argc;
+    (void)argv;
+    
     //Initialize command info
     System2CommandInfo commandInfo;
     {
@@ -63,7 +66,7 @@ int main(int, char**)
     
     //Wait for command to finish and get return code
     int returnCode = -1;
-    System2GetCommandReturnValueSync(&commandInfo, &returnCode);
+    System2GetCommandReturnValue(&commandInfo, -1, &returnCode);
     
     //Capture output and print it
     {
@@ -109,9 +112,12 @@ typedef struct
 {
     bool RedirectInput;         //Redirect input with pipe?
     bool RedirectOutput;        //Redirect output with pipe?
-    const char* RunDirectory;   //The directory to run the command in? NULL for current working directory
-    const char** EnvVarsNames;  //Array of environment variables names to add/set/unset. Will be ignored if NULL
-    const char** EnvVarsValues; //Array of environment variables values to add/set/unset. Will be ignored if NULL.
+    const char* RunDirectory;   //The directory to run the command in? NULL for current working 
+                                //directory. `SYSTEM2_POSIX_SPAWN` does not support this.
+    const char** EnvVarsNames;  //Array of environment variables names to add/set/unset. 
+                                //Will be ignored if NULL
+    const char** EnvVarsValues; //Array of environment variables values to add/set/unset. 
+                                //Will be ignored if NULL.
                                 //If the value itself is NULL, it will unset the environment variable
     int EnvVarsCount;           //How many environment variables, if `EnvVarsNames` is not NULL
     
@@ -157,7 +163,7 @@ Passing `NULL` to `args` denotes no arguments.
 On Windows, automatic escaping can be removed by setting the `DisableEscape` in `inOutCommandInfo`
 
 NOTE: Unlike posix exec* function calls, you don't need to pass the path of executable to `args`. 
-This is handled internally.
+      This is handled internally.
 
 Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
@@ -225,37 +231,33 @@ Could return the following results:
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2CleanupCommand(const System2CommandInfo* info);
 
 /*
-Gets the return code if the command has finished.
-Otherwise, this will return SYSTEM2_RESULT_COMMAND_NOT_FINISHED immediately.
+Wait for the command to finish and gets the return code. If the returned result is 
+`SYSTEM2_RESULT_SUCCESS`, the `outReturnCode` can be read to get the return code of the command.
+
+If `timeoutSec` is >= 0, this function will return within `timeoutSec` seconds. In which case the 
+returned result could be `SYSTEM2_RESULT_COMMAND_NOT_FINISHED` where the command hasn't finished yet.
+
+If `timeoutSec` is < 0, this function will block indefinitely until the command has finished one way 
+or the other.
 
 Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_COMMAND_NOT_FINISHED
+- SYSTEM2_RESULT_POSIX_SPAWN_TIMEOUT_NOT_SUPPORTED
 - SYSTEM2_RESULT_COMMAND_TERMINATED
 - SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED
-- SYSTEM2_RESULT_COMMAND_WAIT_ASYNC_FAILED
+- SYSTEM2_RESULT_COMMAND_WAIT_FAILED
 - SYSTEM2_RESULT_INVALID_ARGUMENT
+- SYSTEM2_RESULT_TIMEOUT_SIGPROCMASK_FAILED
 */
-SYSTEM2_FUNC_PREFIX 
-SYSTEM2_RESULT System2GetCommandReturnValueAsync(const System2CommandInfo* info, int* outReturnCode);
-
-/*
-Wait for the command to finish and gets the return code
-
-Could return the following results:
-- SYSTEM2_RESULT_SUCCESS
-- SYSTEM2_RESULT_COMMAND_TERMINATED
-- SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED
-- SYSTEM2_RESULT_COMMAND_WAIT_SYNC_FAILED
-- SYSTEM2_RESULT_INVALID_ARGUMENT
-*/
-SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System2CommandInfo* info, 
-                                                                    int* outReturnCode);
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValue(const System2CommandInfo* info, 
+                                                                int timeoutSec,
+                                                                int* outReturnCode);
 
 /*
 Kills (cannot be caught) a spawned command.
 
-NOTE: On Posix, this will cause `System2GetCommandReturnValue*` to return 
+NOTE: On Posix, this will cause `System2GetCommandReturnValue()` to return 
       `SYSTEM2_RESULT_COMMAND_TERMINATED`. 
       While on Windows, `SYSTEM2_RESULT_SUCCESS` will be returned instead.
 
@@ -272,13 +274,13 @@ Terminates a spawned command.
 
 NOTE: This has no guarantee that the command is terminated even if the returned value is 
       `SYSTEM2_RESULT_SUCCESS`. You should always check the status of the command with 
-      `System2GetCommandReturnValue*`.
+      `System2GetCommandReturnValue()`.
 
-NOTE: On Posix, this will cause `System2GetCommandReturnValue*` to return 
+NOTE: On Posix, this will cause `System2GetCommandReturnValue()` to return 
       `SYSTEM2_RESULT_COMMAND_TERMINATED`. 
       While on Windows, `SYSTEM2_RESULT_SUCCESS` will be returned instead.
 
-NOTE: This will fail with `SYSTEM2_RESULT_WINDOWS_TERM_NO_WINDOW` on Windows if the spawned command 
+NOTE: On Windows, This will fail with `SYSTEM2_RESULT_WINDOWS_TERM_NO_WINDOW` if the spawned command 
       has no window handle. In which case, you will need to kill it instead.
 
 Could return the following results:

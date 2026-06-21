@@ -12,6 +12,13 @@ If you do not want to use header only due to system header leakage
     define SYSTEM2_IMPLEMENTATION_ONLY 1 and include this header in a c file
 */
 
+/*
+`#define SYSTEM2_POSIX_SPAWN 1`
+
+This bypasses inheriting memory from parent process on linux (glibc 2.24) but removes the ability 
+to use RunDirectory. See https://github.com/Neko-Box-Coder/System2/issues/3
+*/
+
 #if SYSTEM2_DECLARATION_ONLY
     //We need system types defined if we don't want to include system headers
     #if defined(__unix__) || defined(__APPLE__)
@@ -58,9 +65,12 @@ typedef struct
 {
     bool RedirectInput;         //Redirect input with pipe?
     bool RedirectOutput;        //Redirect output with pipe?
-    const char* RunDirectory;   //The directory to run the command in? NULL for current working directory
-    const char** EnvVarsNames;  //Array of environment variables names to add/set/unset. Will be ignored if NULL
-    const char** EnvVarsValues; //Array of environment variables values to add/set/unset. Will be ignored if NULL.
+    const char* RunDirectory;   //The directory to run the command in? NULL for current working 
+                                //directory. `SYSTEM2_POSIX_SPAWN` does not support this.
+    const char** EnvVarsNames;  //Array of environment variables names to add/set/unset. 
+                                //Will be ignored if NULL
+    const char** EnvVarsValues; //Array of environment variables values to add/set/unset. 
+                                //Will be ignored if NULL.
                                 //If the value itself is NULL, it will unset the environment variable
     int EnvVarsCount;           //How many environment variables, if `EnvVarsNames` is not NULL
     
@@ -96,8 +106,8 @@ typedef enum
     SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED = -3,
     SYSTEM2_RESULT_READ_FAILED = -4,
     SYSTEM2_RESULT_WRITE_FAILED = -5,
-    SYSTEM2_RESULT_COMMAND_WAIT_SYNC_FAILED = -6,
-    SYSTEM2_RESULT_COMMAND_WAIT_ASYNC_FAILED = -7,
+    SYSTEM2_RESULT_COMMAND_WAIT_FAILED = -6,
+    SYSTEM2_RESULT_TIMEOUT_SIGPROCMASK_FAILED = -7,
     SYSTEM2_RESULT_UNSUPPORTED_PLATFORM = -8,
     SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED = -9,
     SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DESTROY_FAILED = -10,
@@ -109,6 +119,7 @@ typedef enum
     SYSTEM2_RESULT_WINDOWS_SET_ENV_FAILED = -16,
     SYSTEM2_RESULT_KILL_FAILED = -17,
     SYSTEM2_RESULT_TERM_FAILED = -18,
+    SYSTEM2_RESULT_POSIX_SPAWN_TIMEOUT_NOT_SUPPORTED = -19,
 } SYSTEM2_RESULT;
 
 /*
@@ -146,7 +157,7 @@ Passing `NULL` to `args` denotes no arguments.
 On Windows, automatic escaping can be removed by setting the `DisableEscape` in `inOutCommandInfo`
 
 NOTE: Unlike posix exec* function calls, you don't need to pass the path of executable to `args`. 
-This is handled internally.
+      This is handled internally.
 
 Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
@@ -214,37 +225,33 @@ Could return the following results:
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2CleanupCommand(const System2CommandInfo* info);
 
 /*
-Gets the return code if the command has finished.
-Otherwise, this will return SYSTEM2_RESULT_COMMAND_NOT_FINISHED immediately.
+Wait for the command to finish and gets the return code. If the returned result is 
+`SYSTEM2_RESULT_SUCCESS`, the `outReturnCode` can be read to get the return code of the command.
+
+If `timeoutSec` is >= 0, this function will return within `timeoutSec` seconds. In which case the 
+returned result could be `SYSTEM2_RESULT_COMMAND_NOT_FINISHED` where the command hasn't finished yet.
+
+If `timeoutSec` is < 0, this function will block indefinitely until the command has finished one way 
+or the other.
 
 Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
 - SYSTEM2_RESULT_COMMAND_NOT_FINISHED
+- SYSTEM2_RESULT_POSIX_SPAWN_TIMEOUT_NOT_SUPPORTED
 - SYSTEM2_RESULT_COMMAND_TERMINATED
 - SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED
-- SYSTEM2_RESULT_COMMAND_WAIT_ASYNC_FAILED
+- SYSTEM2_RESULT_COMMAND_WAIT_FAILED
 - SYSTEM2_RESULT_INVALID_ARGUMENT
+- SYSTEM2_RESULT_TIMEOUT_SIGPROCMASK_FAILED
 */
-SYSTEM2_FUNC_PREFIX 
-SYSTEM2_RESULT System2GetCommandReturnValueAsync(const System2CommandInfo* info, int* outReturnCode);
-
-/*
-Wait for the command to finish and gets the return code
-
-Could return the following results:
-- SYSTEM2_RESULT_SUCCESS
-- SYSTEM2_RESULT_COMMAND_TERMINATED
-- SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED
-- SYSTEM2_RESULT_COMMAND_WAIT_SYNC_FAILED
-- SYSTEM2_RESULT_INVALID_ARGUMENT
-*/
-SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValueSync(const System2CommandInfo* info, 
-                                                                    int* outReturnCode);
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValue(const System2CommandInfo* info, 
+                                                                int timeoutSec,
+                                                                int* outReturnCode);
 
 /*
 Kills (cannot be caught) a spawned command.
 
-NOTE: On Posix, this will cause `System2GetCommandReturnValue*` to return 
+NOTE: On Posix, this will cause `System2GetCommandReturnValue()` to return 
       `SYSTEM2_RESULT_COMMAND_TERMINATED`. 
       While on Windows, `SYSTEM2_RESULT_SUCCESS` will be returned instead.
 
@@ -261,13 +268,13 @@ Terminates a spawned command.
 
 NOTE: This has no guarantee that the command is terminated even if the returned value is 
       `SYSTEM2_RESULT_SUCCESS`. You should always check the status of the command with 
-      `System2GetCommandReturnValue*`.
+      `System2GetCommandReturnValue()`.
 
-NOTE: On Posix, this will cause `System2GetCommandReturnValue*` to return 
+NOTE: On Posix, this will cause `System2GetCommandReturnValue()` to return 
       `SYSTEM2_RESULT_COMMAND_TERMINATED`. 
       While on Windows, `SYSTEM2_RESULT_SUCCESS` will be returned instead.
 
-NOTE: This will fail with `SYSTEM2_RESULT_WINDOWS_TERM_NO_WINDOW` on Windows if the spawned command 
+NOTE: On Windows, This will fail with `SYSTEM2_RESULT_WINDOWS_TERM_NO_WINDOW` if the spawned command 
       has no window handle. In which case, you will need to kill it instead.
 
 Could return the following results:
@@ -352,6 +359,7 @@ SYSTEM2_RESULT System2SetEnvironmentVariable(const char* envName, const char* en
 
 #if !SYSTEM2_DECLARATION_ONLY
 
+#include <time.h>
 #include <stdlib.h>
 #include <stdbool.h>
 
@@ -386,6 +394,7 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
 
 #if defined(__unix__) || defined(__APPLE__)
     #include <signal.h>
+    #include <errno.h>
     #include <sys/wait.h>
     extern char** environ;
     
@@ -486,7 +495,7 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
                 
                 _exit(8);
             }
-        #else //SYSTEM2_POSIX_SPAWN
+        #else //#if !defined(SYSTEM2_POSIX_SPAWN) || SYSTEM2_POSIX_SPAWN == 0
             posix_spawn_file_actions_t file_actions;
             posix_spawn_file_actions_init(&file_actions);
 
@@ -689,7 +698,7 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
                 free(nullTerminatedArgs);
                 return SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED;
             }
-        #endif //SYSTEM2_POSIX_SPAWN
+        #endif //#else
         
         //Parent code
         {
@@ -789,20 +798,19 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
         return SYSTEM2_RESULT_SUCCESS;
     }
     
-    SYSTEM2_FUNC_PREFIX 
-    SYSTEM2_RESULT System2GetCommandReturnValueAsyncPosix(  const System2CommandInfo* info, 
-                                                            int* outReturnCode)
+    SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT Internal_System2WaitPid( const System2CommandInfo* info, 
+                                                                bool noHang,
+                                                                int* outReturnCode)
     {
         if(!info || !outReturnCode)
             return SYSTEM2_RESULT_INVALID_ARGUMENT;
         
         int status;
-        pid_t pidResult = waitpid(info->ChildProcessID, &status, WNOHANG);
-        
+        pid_t pidResult = waitpid(info->ChildProcessID, &status, noHang ? WNOHANG : 0);
         if(pidResult == 0)
             return SYSTEM2_RESULT_COMMAND_NOT_FINISHED;
         else if(pidResult == -1)
-            return SYSTEM2_RESULT_COMMAND_WAIT_ASYNC_FAILED;
+            return SYSTEM2_RESULT_COMMAND_WAIT_FAILED;
 
         if(!WIFEXITED(status))
         {
@@ -815,26 +823,67 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
     }
     
     SYSTEM2_FUNC_PREFIX 
-    SYSTEM2_RESULT System2GetCommandReturnValueSyncPosix(   const System2CommandInfo* info, 
-                                                            int* outReturnCode)
+    SYSTEM2_RESULT System2GetCommandReturnValuePosix(   const System2CommandInfo* info, 
+                                                        int timeoutSec,
+                                                        int* outReturnCode)
     {
         if(!info || !outReturnCode)
             return SYSTEM2_RESULT_INVALID_ARGUMENT;
         
-        int status;
-        pid_t pidResult = waitpid(info->ChildProcessID, &status, 0);
+        if(timeoutSec == 0)
+            return Internal_System2WaitPid(info, true, outReturnCode);
+        else if(timeoutSec < 0)
+            return Internal_System2WaitPid(info, false, outReturnCode);
         
-        if(pidResult == -1)
-            return SYSTEM2_RESULT_COMMAND_WAIT_SYNC_FAILED;
-        
-        if(!WIFEXITED(status))
-        {
-            *outReturnCode = -1;
-            return SYSTEM2_RESULT_COMMAND_TERMINATED;
-        }
+        //Modified from https://stackoverflow.com/a/20173592
+        sigset_t mask;
+        sigset_t origMask;
+        struct timespec timeout;
+        timeout.tv_sec = (time_t)timeoutSec;
+        timeout.tv_nsec = 0;
 
-        *outReturnCode = WEXITSTATUS(status);
-        return SYSTEM2_RESULT_SUCCESS;
+        sigemptyset(&mask);
+        sigemptyset(&origMask);
+        sigaddset(&mask, SIGCHLD);
+        if(sigprocmask(SIG_BLOCK, &mask, &origMask) < 0) 
+            return SYSTEM2_RESULT_TIMEOUT_SIGPROCMASK_FAILED;
+        
+        time_t curTime = time(NULL);
+        
+        SYSTEM2_RESULT result;
+        while(true)
+        {
+            if(sigtimedwait(&mask, NULL, &timeout) < 0)
+            {
+                //Interrupted by a signal other than SIGCHLD.
+                if(errno == EINTR) 
+                    goto rewait;
+            }
+            
+            //A child terminated early, check if it is our child
+            if(time(NULL) - curTime < timeoutSec)
+            {
+                result = Internal_System2WaitPid(info, true, outReturnCode);
+                
+                //It is our child, return
+                if(result != SYSTEM2_RESULT_COMMAND_NOT_FINISHED)
+                    return result;
+                
+                //Otherwise continue waiting
+                rewait:;
+                timeoutSec -= time(NULL) - curTime;
+                if(timeoutSec < 0)
+                    break;
+                
+                curTime = time(NULL);
+                timeout.tv_sec = (time_t)timeoutSec;
+                continue;
+            }
+
+            break;
+        }
+        
+        return Internal_System2WaitPid(info, true, outReturnCode);
     }
     
     SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2KillPosix(const System2CommandInfo* info)
@@ -1655,42 +1704,30 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
     }
     
     SYSTEM2_FUNC_PREFIX 
-    SYSTEM2_RESULT System2GetCommandReturnValueAsyncWindows(const System2CommandInfo* info, 
-                                                            int* outReturnCode)
+    SYSTEM2_RESULT System2GetCommandReturnValueWindows( const System2CommandInfo* info, 
+                                                        int timeoutSec,
+                                                        int* outReturnCode)
     {
         if(!info || !outReturnCode)
             return SYSTEM2_RESULT_INVALID_ARGUMENT;
         
         DWORD exitCode;
         if(!GetExitCodeProcess(info->ChildProcessHandle, &exitCode))
-            return SYSTEM2_RESULT_COMMAND_WAIT_ASYNC_FAILED;
+            return SYSTEM2_RESULT_COMMAND_WAIT_FAILED;
         
-        if( exitCode == STILL_ACTIVE && 
-            WaitForSingleObject(info->ChildProcessHandle, 0) == WAIT_TIMEOUT)
+        if(exitCode == STILL_ACTIVE)
         {
-            return SYSTEM2_RESULT_COMMAND_NOT_FINISHED;
-        }
-
-        *outReturnCode = exitCode;
-        return SYSTEM2_RESULT_SUCCESS;
-    }
-    
-    SYSTEM2_FUNC_PREFIX 
-    SYSTEM2_RESULT System2GetCommandReturnValueSyncWindows( const System2CommandInfo* info, 
-                                                            int* outReturnCode)
-    {
-        if(!info || !outReturnCode)
-            return SYSTEM2_RESULT_INVALID_ARGUMENT;
-        
-        if(WaitForSingleObject(info->ChildProcessHandle, INFINITE) != 0)
-            return SYSTEM2_RESULT_COMMAND_WAIT_SYNC_FAILED;
-        
-        DWORD exitCode;
-        if(!GetExitCodeProcess(info->ChildProcessHandle, &exitCode))
-        {
-            *outReturnCode = -1;
-            CloseHandle(info->ChildProcessHandle);
-            return SYSTEM2_RESULT_COMMAND_TERMINATED;
+            DWORD waitResult = WaitForSingleObject( info->ChildProcessHandle, 
+                                                    timeoutSec >= 0 ? timeoutSec * 1000 : INFINITE);
+            if(waitResult == WAIT_OBJECT_0)
+            {
+                if(!GetExitCodeProcess(info->ChildProcessHandle, &exitCode))
+                    return SYSTEM2_RESULT_COMMAND_WAIT_FAILED;
+            }
+            else if(waitResult == WAIT_TIMEOUT)
+                return SYSTEM2_RESULT_COMMAND_NOT_FINISHED;
+            else
+                return SYSTEM2_RESULT_COMMAND_WAIT_FAILED;
         }
         
         *outReturnCode = exitCode;
@@ -2098,25 +2135,14 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2CleanupCommand(const System2CommandInf
     #endif
 }
 
-SYSTEM2_FUNC_PREFIX 
-SYSTEM2_RESULT System2GetCommandReturnValueAsync(const System2CommandInfo* info, int* outReturnCode)
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2GetCommandReturnValue(const System2CommandInfo* info, 
+                                                                int timeoutSec,
+                                                                int* outReturnCode)
 {
     #if defined(__unix__) || defined(__APPLE__)
-        return System2GetCommandReturnValueAsyncPosix(info, outReturnCode);
+        return System2GetCommandReturnValuePosix(info, timeoutSec, outReturnCode);
     #elif defined(_WIN32)
-        return System2GetCommandReturnValueAsyncWindows(info, outReturnCode);
-    #else
-        return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM; 
-    #endif
-}
-
-SYSTEM2_FUNC_PREFIX 
-SYSTEM2_RESULT System2GetCommandReturnValueSync(const System2CommandInfo* info, int* outReturnCode)
-{
-    #if defined(__unix__) || defined(__APPLE__)
-        return System2GetCommandReturnValueSyncPosix(info, outReturnCode);
-    #elif defined(_WIN32)
-        return System2GetCommandReturnValueSyncWindows(info, outReturnCode);
+        return System2GetCommandReturnValueWindows(info, timeoutSec, outReturnCode);
     #else
         return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM; 
     #endif
