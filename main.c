@@ -83,6 +83,7 @@ void ReadEnvVarsExample(void);
 void TermExample(void);
 void KillExample(void);
 void TimeoutExample(void);
+void ReadStderrExample(void);
 
 int main(int argc, char** argv) 
 {
@@ -122,6 +123,7 @@ int main(int argc, char** argv)
     TermExample();
     KillExample();
     TimeoutExample();
+    ReadStderrExample();
     
     return 0;
 }
@@ -135,6 +137,10 @@ int main(int argc, char** argv)
 
 
 #define FUNC_HEADER() printf("\n\n---------------------\n%s\n---------------------\n", __func__)
+
+#if defined(_WIN32)
+    #define sleep(x) Sleep(1000 * (x))
+#endif
 
 void RunSubprocessExample(void)
 {
@@ -327,10 +333,6 @@ void SetEnvVarsExample(void)
     EXIT_IF_FAILED(result);
 }
 
-#if defined(_WIN32)
-    #define sleep(x) Sleep(1000 * (x))
-#endif
-
 void ReadEnvVarsExample(void)
 {
     FUNC_HEADER();
@@ -461,6 +463,39 @@ void TimeoutExample(void)
     printf("Hello should be printed now even after we have cleaned up the command info\n");
     
     sleep(3);
+}
+
+void ReadStderrExample(void)
+{
+    FUNC_HEADER();
+    
+    System2CommandInfo commandInfo;
+    memset(&commandInfo, 0, sizeof(System2CommandInfo));
+    commandInfo.RedirectOutput = true;
+    commandInfo.StandaloneStdErr = true;
+    SYSTEM2_RESULT result;
+    result = System2Run(">&2 echo Hello stderr", &commandInfo);
+    
+    EXIT_IF_FAILED(result);
+    
+    int returnCode = -1;
+    result = System2GetCommandReturnValue(&commandInfo, -1, &returnCode);
+    EXIT_IF_FAILED(result);
+    
+    char outputBuffer[1024];
+    
+    printf("stderr: ");
+    do
+    {
+        uint32_t bytesRead = 0;
+        result = System2ReadFromStderr(&commandInfo, outputBuffer, 1023, &bytesRead);
+        outputBuffer[bytesRead] = 0;
+        printf("%s", outputBuffer);
+    }
+    while(result == SYSTEM2_RESULT_READ_NOT_FINISHED);
+    
+    result = System2CleanupCommand(&commandInfo);
+    EXIT_IF_FAILED(result);
 }
 
 #endif //#else

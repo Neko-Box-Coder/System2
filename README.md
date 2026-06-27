@@ -112,6 +112,7 @@ typedef struct
 {
     bool RedirectInput;         //Redirect input with pipe?
     bool RedirectOutput;        //Redirect output with pipe?
+    bool StandaloneStderr;      //Do not mix stdout and stderr?
     const char* RunDirectory;   //The directory to run the command in? NULL for current working 
                                 //directory. `SYSTEM2_POSIX_SPAWN` does not support this.
     const char** EnvVarsNames;  //Array of environment variables names to add/set/unset. 
@@ -185,7 +186,12 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2RunSubprocess(const char* executable,
 
 
 /*
-Reads the output (stdout and stderr) from the command. 
+Reads the output from the command. `info->RedirectOutput` must be true when `info` was passed to one 
+of the System2Run* calls. Otherwise `SYSTEM2_RESULT_INVALID_ARGUMENT` will be returned by this call.
+
+If `info->StandaloneStderr` is true, the output would only contain stdout, otherwise it will contain
+both stdout and stderr.
+
 Output string is **NOT** null terminated.
 
 If SYSTEM2_RESULT_READ_NOT_FINISHED is returned, 
@@ -200,6 +206,29 @@ Could return the following results:
 - SYSTEM2_RESULT_INVALID_ARGUMENT
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2ReadFromOutput(   const System2CommandInfo* info, 
+                                                            char* outputBuffer, 
+                                                            uint32_t outputBufferSize,
+                                                            uint32_t* outBytesRead);
+
+/*
+Reads the stderr from the command. `info->RedirectOutput` and `info->StandaloneStderr` must be true 
+when `info` was passed to one of the System2Run* calls. Otherwise `SYSTEM2_RESULT_INVALID_ARGUMENT` 
+will be returned by this call.
+
+Output string is **NOT** null terminated.
+
+If SYSTEM2_RESULT_READ_NOT_FINISHED is returned, 
+this function can be called again until SYSTEM2_RESULT_SUCCESS to retrieve the rest of the output.
+
+outBytesRead determines how many bytes have been read for **this** function call
+
+Could return the following results:
+- SYSTEM2_RESULT_SUCCESS
+- SYSTEM2_RESULT_READ_NOT_FINISHED
+- SYSTEM2_RESULT_READ_FAILED
+- SYSTEM2_RESULT_INVALID_ARGUMENT
+*/
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2ReadFromStderr(   const System2CommandInfo* info, 
                                                             char* outputBuffer, 
                                                             uint32_t outputBufferSize,
                                                             uint32_t* outBytesRead);
