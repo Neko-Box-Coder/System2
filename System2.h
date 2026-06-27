@@ -65,6 +65,7 @@ typedef struct
 {
     bool RedirectInput;         //Redirect input with pipe?
     bool RedirectOutput;        //Redirect output with pipe?
+    bool StandaloneStderr;      //Do not mix stdout and stderr?
     const char* RunDirectory;   //The directory to run the command in? NULL for current working 
                                 //directory. `SYSTEM2_POSIX_SPAWN` does not support this.
     const char** EnvVarsNames;  //Array of environment variables names to add/set/unset. 
@@ -77,6 +78,7 @@ typedef struct
     #if defined(__unix__) || defined(__APPLE__)
         int ParentToChildPipes[2];
         int ChildToParentPipes[2];
+        int ChildToParentPipesErr[2];
         pid_t ChildProcessID;
     #endif
     
@@ -84,6 +86,7 @@ typedef struct
         bool DisableEscapes;    //Disable automatic escaping?
         HANDLE ParentToChildPipes[2];
         HANDLE ChildToParentPipes[2];
+        HANDLE ChildToParentPipesErr[2];
         HANDLE ChildProcessHandle;
     #endif
 } System2CommandInfo;
@@ -179,7 +182,12 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2RunSubprocess(const char* executable,
 
 
 /*
-Reads the output (stdout and stderr) from the command. 
+Reads the output from the command. `info->RedirectOutput` must be true when `info` was passed to one 
+of the System2Run* calls. Otherwise `SYSTEM2_RESULT_INVALID_ARGUMENT` will be returned by this call.
+
+If `info->StandaloneStderr` is true, the output would only contain stdout, otherwise it will contain
+both stdout and stderr.
+
 Output string is **NOT** null terminated.
 
 If SYSTEM2_RESULT_READ_NOT_FINISHED is returned, 
@@ -194,6 +202,29 @@ Could return the following results:
 - SYSTEM2_RESULT_INVALID_ARGUMENT
 */
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2ReadFromOutput(   const System2CommandInfo* info, 
+                                                            char* outputBuffer, 
+                                                            uint32_t outputBufferSize,
+                                                            uint32_t* outBytesRead);
+
+/*
+Reads the stderr from the command. `info->RedirectOutput` and `info->StandaloneStderr` must be true 
+when `info` was passed to one of the System2Run* calls. Otherwise `SYSTEM2_RESULT_INVALID_ARGUMENT` 
+will be returned by this call.
+
+Output string is **NOT** null terminated.
+
+If SYSTEM2_RESULT_READ_NOT_FINISHED is returned, 
+this function can be called again until SYSTEM2_RESULT_SUCCESS to retrieve the rest of the output.
+
+outBytesRead determines how many bytes have been read for **this** function call
+
+Could return the following results:
+- SYSTEM2_RESULT_SUCCESS
+- SYSTEM2_RESULT_READ_NOT_FINISHED
+- SYSTEM2_RESULT_READ_FAILED
+- SYSTEM2_RESULT_INVALID_ARGUMENT
+*/
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2ReadFromStderr(   const System2CommandInfo* info, 
                                                             char* outputBuffer, 
                                                             uint32_t outputBufferSize,
                                                             uint32_t* outBytesRead);
@@ -417,13 +448,35 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
         if(system2Result != SYSTEM2_RESULT_SUCCESS)
             return system2Result;
         
-        int result = pipe(inOutCommandInfo->ParentToChildPipes);
-        if(result != 0)
-            return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
+        if(inOutCommandInfo->RedirectInput)
+        {
+            int result = pipe(inOutCommandInfo->ParentToChildPipes);
+            if(result != 0)
+                return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
+        }
+        else
+            memset(inOutCommandInfo->ParentToChildPipes, 0, sizeof(int) * 2);
         
-        result = pipe(inOutCommandInfo->ChildToParentPipes);
-        if(result != 0)
-            return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
+        if(inOutCommandInfo->RedirectOutput)
+        {
+            int result = pipe(inOutCommandInfo->ChildToParentPipes);
+            if(result != 0)
+                return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
+            
+            if(inOutCommandInfo->StandaloneStderr)
+            {
+                result = pipe(inOutCommandInfo->ChildToParentPipesErr);
+                if(result != 0)
+                    return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
+            }
+            else
+                memset(inOutCommandInfo->ChildToParentPipesErr, 0, sizeof(int) * 2);
+        }
+        else
+        {
+            memset(inOutCommandInfo->ChildToParentPipes, 0, sizeof(int) * 2);
+            memset(inOutCommandInfo->ChildToParentPipesErr, 0, sizeof(int) * 2);
+        }
 
         const char** nullTerminatedArgs = (const char**)calloc(argsCount + 2, sizeof(char*));
         if(nullTerminatedArgs == NULL)
@@ -444,11 +497,23 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
             //Child
             else if(pid == 0)
             {
-                if(close(inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_WRITE]) != 0)
-                    _exit(2);
+                if(inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_WRITE])
+                {
+                    if(close(inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_WRITE]) != 0)
+                        _exit(2);
+                }
                 
-                if(close(inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_READ]) != 0)
-                    _exit(3);
+                if(inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_READ])
+                {
+                    if(close(inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_READ]) != 0)
+                        _exit(3);
+                }
+                
+                if(inOutCommandInfo->ChildToParentPipesErr[SYSTEM2_FD_READ])
+                {
+                    if(close(inOutCommandInfo->ChildToParentPipesErr[SYSTEM2_FD_READ]) != 0)
+                        _exit(3);
+                }
                 
                 if(inOutCommandInfo->RunDirectory != NULL)
                 {
@@ -468,20 +533,22 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
                 
                 if(inOutCommandInfo->RedirectInput)
                 {
-                    result = dup2(  inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ], 
-                                    STDIN_FILENO);
+                    int result = dup2(  inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ], 
+                                        STDIN_FILENO);
                     if(result == -1)
                         _exit(5);
                 }
 
                 if(inOutCommandInfo->RedirectOutput)
                 {
-                    result = dup2(  inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE], 
-                                    STDOUT_FILENO);
+                    int result = dup2(  inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE], 
+                                        STDOUT_FILENO);
                     if(result == -1)
                         _exit(6);
                     
-                    result = dup2(  inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE], 
+                    result = dup2(  inOutCommandInfo->StandaloneStderr ?
+                                    inOutCommandInfo->ChildToParentPipesErr[SYSTEM2_FD_WRITE] :
+                                    inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE], 
                                     STDERR_FILENO);
                     if(result == -1)
                         _exit(7);
@@ -494,30 +561,49 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
                 //Should never be reached
                 
                 _exit(8);
-            }
+            } //else if(pid == 0)
         #else //#if !defined(SYSTEM2_POSIX_SPAWN) || SYSTEM2_POSIX_SPAWN == 0
             posix_spawn_file_actions_t file_actions;
             posix_spawn_file_actions_init(&file_actions);
 
-            //Close unused pipe ends in the child process
             int* parentToChildPipes = inOutCommandInfo->ParentToChildPipes;
-            if(posix_spawn_file_actions_addclose(   &file_actions, 
-                                                    parentToChildPipes[SYSTEM2_FD_WRITE]) != 0) 
-            {
-                posix_spawn_file_actions_destroy(&file_actions);
-                free(nullTerminatedArgs);
-                return SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DESTROY_FAILED;
-            }
-
             int* childToParentPipes = inOutCommandInfo->ChildToParentPipes;
-            if(posix_spawn_file_actions_addclose(   &file_actions, 
-                                                    childToParentPipes[SYSTEM2_FD_READ]) != 0) 
+            int* childToParentPipesErr = inOutCommandInfo->ChildToParentPipesErr;
+            
+            //Close unused pipe ends in the child process
+            if(inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_WRITE])
             {
-                posix_spawn_file_actions_destroy(&file_actions);
-                free(nullTerminatedArgs);
-                return SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DESTROY_FAILED;
+                if(posix_spawn_file_actions_addclose(   &file_actions, 
+                                                        parentToChildPipes[SYSTEM2_FD_WRITE]) != 0) 
+                {
+                    posix_spawn_file_actions_destroy(&file_actions);
+                    free(nullTerminatedArgs);
+                    return SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DESTROY_FAILED;
+                }
             }
 
+            if(inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_READ])
+            {
+                if(posix_spawn_file_actions_addclose(   &file_actions, 
+                                                        childToParentPipes[SYSTEM2_FD_READ]) != 0) 
+                {
+                    posix_spawn_file_actions_destroy(&file_actions);
+                    free(nullTerminatedArgs);
+                    return SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DESTROY_FAILED;
+                }
+            }
+
+            if(inOutCommandInfo->ChildToParentPipesErr[SYSTEM2_FD_READ])
+            {
+                if(posix_spawn_file_actions_addclose(   &file_actions, 
+                                                        childToParentPipesErr[SYSTEM2_FD_READ]) != 0) 
+                {
+                    posix_spawn_file_actions_destroy(&file_actions);
+                    free(nullTerminatedArgs);
+                    return SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DESTROY_FAILED;
+                }
+            }
+            
             //Redirect input
             if(inOutCommandInfo->RedirectInput)
             {
@@ -544,7 +630,11 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
                 }
 
                 if(posix_spawn_file_actions_adddup2(&file_actions,
-                                                    childToParentPipes[SYSTEM2_FD_WRITE],
+                                                    (
+                                                        inOutCommandInfo->StandaloneStderr ?
+                                                        childToParentPipesErr[SYSTEM2_FD_WRITE] :
+                                                        childToParentPipes[SYSTEM2_FD_WRITE]
+                                                    ),
                                                     STDERR_FILENO) != 0)
                 {
                     posix_spawn_file_actions_destroy(&file_actions);
@@ -554,8 +644,17 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
             }
 
             //Close the duplicated file descriptors
-            posix_spawn_file_actions_addclose(&file_actions, parentToChildPipes[SYSTEM2_FD_READ]);
-            posix_spawn_file_actions_addclose(&file_actions, childToParentPipes[SYSTEM2_FD_WRITE]);
+            if(inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ])
+                posix_spawn_file_actions_addclose(&file_actions, parentToChildPipes[SYSTEM2_FD_READ]);
+            
+            if(inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE])
+                posix_spawn_file_actions_addclose(&file_actions, childToParentPipes[SYSTEM2_FD_WRITE]);
+            
+            if(inOutCommandInfo->ChildToParentPipesErr[SYSTEM2_FD_WRITE])
+            {
+                posix_spawn_file_actions_addclose(  &file_actions, 
+                                                    childToParentPipesErr[SYSTEM2_FD_WRITE]);
+            }
 
             //Handle changing the directory
             if(inOutCommandInfo->RunDirectory)
@@ -704,11 +803,23 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
         {
             free(nullTerminatedArgs);
             
-            if(close(inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ]) != 0)
-                return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+            if(inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ])
+            {
+                if(close(inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ]) != 0)
+                    return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+            }
             
-            if(close(inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE]) != 0)
-                return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+            if(inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE])
+            {
+                if(close(inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE]) != 0)
+                    return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+            }
+            
+            if(inOutCommandInfo->ChildToParentPipesErr[SYSTEM2_FD_WRITE])
+            {
+                if(close(inOutCommandInfo->ChildToParentPipesErr[SYSTEM2_FD_WRITE]) != 0)
+                    return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+            }
             
             inOutCommandInfo->ChildProcessID = pid;
         }
@@ -724,11 +835,15 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
     }
     
     SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2ReadFromOutputPosix(  const System2CommandInfo* info, 
+                                                                    bool readStderr,
                                                                     char* outputBuffer, 
                                                                     uint32_t outputBufferSize,
                                                                     uint32_t* outBytesRead)
     {
-        if(!info || !outputBuffer || !outBytesRead)
+        if(!info || !outputBuffer || !outBytesRead || !info->RedirectOutput)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
+        if(readStderr && !info->StandaloneStderr)
             return SYSTEM2_RESULT_INVALID_ARGUMENT;
         
         int32_t readResult;
@@ -736,7 +851,11 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
         
         while (true)
         {
-            readResult = read(  info->ChildToParentPipes[SYSTEM2_FD_READ], 
+            readResult = read(  (
+                                    readStderr ?
+                                    info->ChildToParentPipesErr[SYSTEM2_FD_READ] :
+                                    info->ChildToParentPipes[SYSTEM2_FD_READ]
+                                ), 
                                 outputBuffer, 
                                 outputBufferSize - *outBytesRead);
             
@@ -760,7 +879,7 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
                                                                 const char* inputBuffer, 
                                                                 const uint32_t inputBufferSize)
     {
-        if(!info || !inputBuffer)
+        if(!info || !inputBuffer || !info->RedirectInput)
             return SYSTEM2_RESULT_INVALID_ARGUMENT;
         
         uint32_t currentWriteLengthLeft = inputBufferSize;
@@ -789,11 +908,23 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
         if(!info)
             return SYSTEM2_RESULT_INVALID_ARGUMENT;
 
-        if(close(info->ChildToParentPipes[SYSTEM2_FD_READ]) != 0)
-            return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+        if(info->ChildToParentPipes[SYSTEM2_FD_READ])
+        {
+            if(close(info->ChildToParentPipes[SYSTEM2_FD_READ]) != 0)
+                return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+        }
 
-        if(close(info->ParentToChildPipes[SYSTEM2_FD_WRITE]) != 0)
-            return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+        if(info->ChildToParentPipesErr[SYSTEM2_FD_READ])
+        {
+            if(close(info->ChildToParentPipesErr[SYSTEM2_FD_READ]) != 0)
+                return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+        }
+        
+        if(info->ParentToChildPipes[SYSTEM2_FD_WRITE])
+        {
+            if(close(info->ParentToChildPipes[SYSTEM2_FD_WRITE]) != 0)
+                return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+        }
         
         return SYSTEM2_RESULT_SUCCESS;
     }
@@ -1280,37 +1411,69 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
             {
                 return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
             }
+            
+            if(inOutCommandInfo->StandaloneStderr)
+            {
+                // Create a pipe for the child process's STDERR. 
+                if(!CreatePipe( &inOutCommandInfo->ChildToParentPipesErr[SYSTEM2_FD_READ], 
+                                &inOutCommandInfo->ChildToParentPipesErr[SYSTEM2_FD_WRITE], 
+                                NULL, 
+                                0))
+                {
+                    return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
+                }
+                
+                if(!SetHandleInformation(   inOutCommandInfo->ChildToParentPipesErr[SYSTEM2_FD_WRITE], 
+                                            HANDLE_FLAG_INHERIT, 
+                                            HANDLE_FLAG_INHERIT))
+                {
+                    return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
+                }
+            }
+            else
+                memset(inOutCommandInfo->ChildToParentPipesErr, 0, sizeof(HANDLE) * 2);
+        }
+        else
+        {
+            memset(inOutCommandInfo->ChildToParentPipes, 0, sizeof(HANDLE) * 2);
+            memset(inOutCommandInfo->ChildToParentPipesErr, 0, sizeof(HANDLE) * 2);
         }
         
-        // Create a pipe for the child process's STDIN. 
-        if(!CreatePipe( &inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ], 
-                        &inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_WRITE], 
-                        NULL, 
-                        0))
+        if(inOutCommandInfo->RedirectInput)
         {
-            return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
-        }
+            // Create a pipe for the child process's STDIN. 
+            if(!CreatePipe( &inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ], 
+                            &inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_WRITE], 
+                            NULL, 
+                            0))
+            {
+                return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
+            }
 
-        // Set the read handle to the pipe for STDIN to be inherited. 
-        if(!SetHandleInformation(   inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ], 
-                                    HANDLE_FLAG_INHERIT, 
-                                    HANDLE_FLAG_INHERIT))
-        {
-            return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
+            // Set the read handle to the pipe for STDIN to be inherited. 
+            if(!SetHandleInformation(   inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ], 
+                                        HANDLE_FLAG_INHERIT, 
+                                        HANDLE_FLAG_INHERIT))
+            {
+                return SYSTEM2_RESULT_PIPE_CREATE_FAILED;
+            }
         }
+        else 
+            memset(inOutCommandInfo->ParentToChildPipes, 0, sizeof(HANDLE) * 2);
         
         PROCESS_INFORMATION processInfo;
         STARTUPINFOW startupInfo;
         BOOL success = FALSE; 
         
-        // Set up members of the PROCESS_INFORMATION structure. 
+        //Set up members of the PROCESS_INFORMATION structure. 
         ZeroMemory( &processInfo, sizeof(PROCESS_INFORMATION) );
     
-        // Set up members of the STARTUPINFO structure. 
-        // This structure specifies the STDIN and STDOUT handles for redirection.
+        //Set up members of the STARTUPINFO structure. 
+        //This structure specifies the STDIN and STDOUT handles for redirection.
         ZeroMemory(&startupInfo, sizeof(STARTUPINFOW));
         startupInfo.cb = sizeof(STARTUPINFOW); 
-        startupInfo.dwFlags |= STARTF_USESTDHANDLES;
+        if(inOutCommandInfo->RedirectInput || inOutCommandInfo->RedirectOutput)
+            startupInfo.dwFlags |= STARTF_USESTDHANDLES;
         
         if(inOutCommandInfo->RedirectInput)
             startupInfo.hStdInput = inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ];
@@ -1319,8 +1482,10 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
         
         if(inOutCommandInfo->RedirectOutput)
         {
-            startupInfo.hStdError = inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE];
             startupInfo.hStdOutput = inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE];
+            startupInfo.hStdError =     inOutCommandInfo->StandaloneStderr ?
+                                        inOutCommandInfo->ChildToParentPipesErr[SYSTEM2_FD_WRITE] :
+                                        inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE];
         }
         else
         {
@@ -1545,22 +1710,22 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
             } //if(inOutCommandInfo->EnvVarsNames)
             
             success = CreateProcessW(   NULL, 
-                                        commandCopyWide,                // command line 
+                                        commandCopyWide,                //command line 
                                         //L"PrintArgs.exe a\\\\b d\"e f\"g h",
-                                        NULL,                           // process securitye attributes 
-                                        NULL,                           // primary thread security attributes 
-                                        TRUE,                           // handles are inherited 
-                                        CREATE_UNICODE_ENVIRONMENT,     // creation flags 
-                                        allEnvVarsW,                    // environment vars
-                                        workingDirectoryWide,           // use parent's current directory 
-                                        &startupInfo,                   // STARTUPINFO pointer 
-                                        &processInfo);                  // receives PROCESS_INFORMATION 
+                                        NULL,                           //process securitye attributes 
+                                        NULL,                           //primary thread security attributes 
+                                        TRUE,                           //handles are inherited 
+                                        CREATE_UNICODE_ENVIRONMENT,     //creation flags 
+                                        allEnvVarsW,                    //environment vars
+                                        workingDirectoryWide,           //use parent's current directory 
+                                        &startupInfo,                   //STARTUPINFO pointer 
+                                        &processInfo);                  //receives PROCESS_INFORMATION 
             free(commandCopyWide);
             free(workingDirectoryWide);
             free(allEnvVarsW);
         }
         
-        // If an error occurs, exit the application. 
+        //If an error occurs, exit the application. 
         if(!success)
         {
             PrintError("CreateProcessW");
@@ -1568,27 +1733,33 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
         }
         else 
         {
-            // Close handles to the child process and its primary thread.
-            // Some applications might keep these handles to monitor the status
-            // of the child process, for example. 
+            //Close handles to the child process and its primary thread.
+            //Some applications might keep these handles to monitor the status
+            //of the child process, for example. 
             inOutCommandInfo->ChildProcessHandle = processInfo.hProcess;
             
-            // Close handles to the stdin and stdout pipes no longer needed by the child process.
-            // If they are not explicitly closed, there is no way to recognize that the child process has ended.
-            if(inOutCommandInfo->RedirectInput)
-            {
-                if(!CloseHandle(processInfo.hThread))
-                    return SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED;
-            }
+            //Close handles to the stdin and stdout pipes no longer needed by the child process.
+            //If they are not explicitly closed, there is no way to recognize that the child process has ended.
+            if(!CloseHandle(processInfo.hThread))
+                return SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED;
 
-            if(inOutCommandInfo->RedirectOutput)
+            if(inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE])
             {
                 if(!CloseHandle(inOutCommandInfo->ChildToParentPipes[SYSTEM2_FD_WRITE]))
                     return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
             }
             
-            if(!CloseHandle(inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ]))
-                return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+            if(inOutCommandInfo->ChildToParentPipesErr[SYSTEM2_FD_WRITE])
+            {
+                if(!CloseHandle(inOutCommandInfo->ChildToParentPipesErr[SYSTEM2_FD_WRITE]))
+                    return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+            }
+            
+            if(inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ])
+            {
+                if(!CloseHandle(inOutCommandInfo->ParentToChildPipes[SYSTEM2_FD_READ]))
+                    return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+            }
 
             return SYSTEM2_RESULT_SUCCESS;
         }
@@ -1610,11 +1781,15 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
     //      so that it doesn't block
     //https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-peeknamedpipe
     SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2ReadFromOutputWindows(const System2CommandInfo* info, 
+                                                                    bool readStderr,
                                                                     char* outputBuffer, 
                                                                     uint32_t outputBufferSize,
                                                                     uint32_t* outBytesRead)
     {
-        if(!info || !outputBuffer || !outBytesRead)
+        if(!info || !outputBuffer || !outBytesRead || !info->RedirectOutput)
+            return SYSTEM2_RESULT_INVALID_ARGUMENT;
+        
+        if(readStderr && !info->StandaloneStderr)
             return SYSTEM2_RESULT_INVALID_ARGUMENT;
         
         DWORD readResult;
@@ -1623,7 +1798,11 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
         
         while (true)
         {
-            bSuccess = ReadFile(info->ChildToParentPipes[SYSTEM2_FD_READ], 
+            bSuccess = ReadFile(( 
+                                    readStderr ?
+                                    info->ChildToParentPipesErr[SYSTEM2_FD_READ] :
+                                    info->ChildToParentPipes[SYSTEM2_FD_READ] 
+                                ),
                                 outputBuffer, 
                                 outputBufferSize - *outBytesRead, 
                                 &readResult, 
@@ -1653,7 +1832,7 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
                                                                     const char* inputBuffer, 
                                                                     const uint32_t inputBufferSize)
     {
-        if(!info || !inputBuffer)
+        if(!info || !inputBuffer || !info->RedirectInput)
             return SYSTEM2_RESULT_INVALID_ARGUMENT;
         
         DWORD currentWriteLengthLeft = inputBufferSize;
@@ -1687,13 +1866,19 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
         if(!info)
             return SYSTEM2_RESULT_INVALID_ARGUMENT;
         
-        if(info->RedirectOutput)
+        if(info->ChildToParentPipes[SYSTEM2_FD_READ])
         {
             if(!CloseHandle(info->ChildToParentPipes[SYSTEM2_FD_READ]))
                 return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
         }
         
-        if(info->RedirectInput)
+        if(info->ChildToParentPipesErr[SYSTEM2_FD_READ])
+        {
+            if(!CloseHandle(info->ChildToParentPipesErr[SYSTEM2_FD_READ]))
+                return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
+        }
+        
+        if(info->ParentToChildPipes[SYSTEM2_FD_WRITE])
         {
             if(!CloseHandle(info->ParentToChildPipes[SYSTEM2_FD_WRITE]))
                 return SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED;
@@ -2103,9 +2288,23 @@ SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2ReadFromOutput(   const System2Command
                                                             uint32_t* outBytesRead)
 {
     #if defined(__unix__) || defined(__APPLE__)
-        return System2ReadFromOutputPosix(info, outputBuffer, outputBufferSize, outBytesRead);
+        return System2ReadFromOutputPosix(info, false, outputBuffer, outputBufferSize, outBytesRead);
     #elif defined(_WIN32)
-        return System2ReadFromOutputWindows(info, outputBuffer, outputBufferSize, outBytesRead);
+        return System2ReadFromOutputWindows(info, false, outputBuffer, outputBufferSize, outBytesRead);
+    #else
+        return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM; 
+    #endif
+}
+
+SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2ReadFromStderr(   const System2CommandInfo* info, 
+                                                            char* outputBuffer, 
+                                                            uint32_t outputBufferSize,
+                                                            uint32_t* outBytesRead)
+{
+    #if defined(__unix__) || defined(__APPLE__)
+        return System2ReadFromOutputPosix(info, true, outputBuffer, outputBufferSize, outBytesRead);
+    #elif defined(_WIN32)
+        return System2ReadFromOutputWindows(info, true, outputBuffer, outputBufferSize, outBytesRead);
     #else
         return SYSTEM2_RESULT_UNSUPPORTED_PLATFORM; 
     #endif
