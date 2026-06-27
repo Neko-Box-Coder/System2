@@ -1429,7 +1429,7 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
                     { \
                         if(charsCount - charsIndex < sizeNeeded) \
                         { \
-                            char* newMem = realloc(allEnvVars, charsCount + sizeNeeded); \
+                            char* newMem = (char*)realloc(allEnvVars, charsCount + sizeNeeded); \
                             if(!newMem) \
                             { \
                                 free(allEnvVars); \
@@ -1967,11 +1967,11 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
         
         bool canUseCache = resource == lastResource && lastEnv && index > lastIndex;
         
-        const char* envStringsStart = resource;
+        const char* envStringsStart = (const char*)resource;
         char* envStrings = canUseCache ? lastEnv : (char*)envStringsStart;
         int currentIndex = canUseCache ? lastIndex : 0;
         
-        lastResource = resource;
+        lastResource = (const char*)resource;
         do
         {
             if(currentIndex == index)
