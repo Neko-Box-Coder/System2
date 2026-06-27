@@ -136,6 +136,10 @@ int main(int argc, char** argv)
 
 #define FUNC_HEADER() printf("\n\n---------------------\n%s\n---------------------\n", __func__)
 
+#if defined(_WIN32)
+    #define sleep(x) Sleep(1000 * (x))
+#endif
+
 void RunSubprocessExample(void)
 {
     FUNC_HEADER();
@@ -326,10 +330,6 @@ void SetEnvVarsExample(void)
     SYSTEM2_RESULT result = System2SetEnvironmentVariable("TestEnv", "TestEnvValue");
     EXIT_IF_FAILED(result);
 }
-
-#if defined(_WIN32)
-    #define sleep(x) Sleep(1000 * (x))
-#endif
 
 void ReadEnvVarsExample(void)
 {
