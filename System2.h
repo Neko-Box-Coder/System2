@@ -68,8 +68,9 @@ typedef struct
     bool StandaloneStderr;      //Do not mix stdout and stderr?
     const char* RunDirectory;   //The directory to run the command in? NULL for current working 
                                 //directory. `SYSTEM2_POSIX_SPAWN` does not support this.
-    const char** EnvVarsNames;  //Array of environment variables names to add/set/unset. 
-                                //Will be ignored if NULL
+    const char** EnvVarsNames;  //Array of environment variables names to add/set/unset from parent's
+                                //copy of environment variables.
+                                //Will be ignored if NULL and will inherit parent's one
     const char** EnvVarsValues; //Array of environment variables values to add/set/unset. 
                                 //Will be ignored if NULL.
                                 //If the value itself is NULL, it will unset the environment variable
