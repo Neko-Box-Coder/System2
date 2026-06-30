@@ -522,6 +522,7 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
                         _exit(4);
                 }
                 
+                //TODO: This is not safe in multi-threaded application after fork
                 //Cheating and be lazy to just use the system2 env var functions :)
                 if(inOutCommandInfo->EnvVarsNames)
                 {
