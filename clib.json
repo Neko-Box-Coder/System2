@@ -1,0 +1,8 @@
+{
+    "name": "system2",
+    "version": "v1.0.1",
+    "repo": "Neko-Box-Coder/System2",
+    "keywords": [ "shell", "subprocess", "system" ],
+    "license": "Unlicense",
+    "src": [ "System2.h", "System2.c" ]
+}
