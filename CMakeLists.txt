@@ -58,6 +58,8 @@ if(SYSTEM2_BUILD_EXAMPLES)
                                                             $<$<BOOL:${SYSTEM2_MIN_EXAMPLE}>:SYSTEM2_MIN_EXAMPLE=1>)
     target_link_libraries(System2ExampleCpp System2)
     set_target_properties(System2ExampleCpp PROPERTIES CXX_STANDARD 11)
+
+    add_executable(VerifyArgs "${CMAKE_CURRENT_LIST_DIR}/VerifyArgs.c")
 endif()
 
 

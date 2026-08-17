@@ -472,7 +472,7 @@ void ReadStderrExample(void)
     System2CommandInfo commandInfo;
     memset(&commandInfo, 0, sizeof(System2CommandInfo));
     commandInfo.RedirectOutput = true;
-    commandInfo.StandaloneStdErr = true;
+    commandInfo.StandaloneStderr = true;
     SYSTEM2_RESULT result;
     result = System2Run(">&2 echo Hello stderr", &commandInfo);
     
