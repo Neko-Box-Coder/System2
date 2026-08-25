@@ -201,24 +201,18 @@ System2CommandInfo RedirectIOExample(void)
 
 void ReadRedirectedIOAsyncExample(System2CommandInfo commandInfo)
 {
+    //Reading output from `RedirectIOExample()`
+    
     FUNC_HEADER();
     
     //Output: testVar is "test content"
     //Output: 1st command has finished with return value: : 0
     
     int returnCode = -1;
-    SYSTEM2_RESULT result = System2GetCommandReturnValue(&commandInfo, 0, &returnCode);
-    while(result == SYSTEM2_RESULT_COMMAND_NOT_FINISHED)
+    char outputBuffer[1024];
+    SYSTEM2_RESULT result;
+    do
     {
-        printf("1st command not yet finished\n");
-        sleep(3);
-        result = System2GetCommandReturnValue(&commandInfo, 0, &returnCode);
-    }
-    
-    if(result == SYSTEM2_RESULT_SUCCESS)
-    {
-        char outputBuffer[1024];
-        
         do
         {
             uint32_t bytesRead = 0;
@@ -228,10 +222,12 @@ void ReadRedirectedIOAsyncExample(System2CommandInfo commandInfo)
         }
         while(result == SYSTEM2_RESULT_READ_NOT_FINISHED);
         
-        printf("%s: %d\n", "1st command has finished with return value", returnCode);
+        result = System2GetCommandReturnValue(&commandInfo, 0, &returnCode);
     }
-    else
-        EXIT_IF_FAILED(result);
+    while(result == SYSTEM2_RESULT_COMMAND_NOT_FINISHED);
+    
+    EXIT_IF_FAILED(result);
+    printf("%s: %d\n", "1st command has finished with return value", returnCode);
     
     result = System2CleanupCommand(&commandInfo);
     EXIT_IF_FAILED(result);
