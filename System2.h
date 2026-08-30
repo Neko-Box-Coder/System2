@@ -31,6 +31,7 @@ to use RunDirectory. See https://github.com/Neko-Box-Coder/System2/issues/3
 #else
     //Includes all the required system headers
     #if defined(__unix__) || defined(__APPLE__)
+        #define _XOPEN_SOURCE 600
         #include <unistd.h>
         #include <stdio.h>
     #endif
