@@ -9,7 +9,7 @@ set(SYSTEM2_USE_SOURCE OFF CACHE BOOL "Build source version of System2")
 set(SYSTEM2_POSIX_SPAWN OFF CACHE BOOL "Use posix_spawn() instead of fork()")
 set(SYSTEM2_TEST_MEMORY OFF CACHE BOOL "Test memory commitment")
 set(SYSTEM2_BUILD_EXAMPLES OFF CACHE BOOL "Build System2 examples?")
-set(SYSTEM2_MIN_EXAMPLES OFF CACHE BOOL "Build minimum(readme) example instead?")
+set(SYSTEM2_MIN_EXAMPLE OFF CACHE BOOL "Build minimum(readme) example instead?")
 
 if(SYSTEM2_USE_SOURCE)
     add_library(System2 "${CMAKE_CURRENT_LIST_DIR}/System2.c")

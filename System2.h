@@ -197,12 +197,8 @@ this function can be called again until SYSTEM2_RESULT_SUCCESS to retrieve the r
 
 `outBytesRead` determines how many bytes have been read for **this** function call
 
-NOTE: Even if this function returns `SYSTEM2_RESULT_SUCCESS`, it is still possible that the 
-      process can output more data later. You will need to check if the process has exited to 
-      determine if you have received all the data, since the process won't exit until all the data 
-      is captured (if you have set redirect to true). This can be done by calling 
-      `System2GetCommandReturnValue()` and check the returned result.
-      You can read `ReadRedirectedIOAsyncExample()` as reference on how to do this.
+NOTE: The process _may_ output more data later even if this function returns `SYSTEM2_RESULT_SUCCESS`.
+      Otherwise if the process has ended, then all output is captured.
 
 Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
@@ -227,12 +223,8 @@ this function can be called again until SYSTEM2_RESULT_SUCCESS to retrieve the r
 
 `outBytesRead` determines how many bytes have been read for **this** function call
 
-NOTE: Even if this function returns `SYSTEM2_RESULT_SUCCESS`, it is still possible that the 
-      process can output more data later. You will need to check if the process has exited to 
-      determine if you have received all the data, since the process won't exit until all the data 
-      is captured (if you have set redirect to true). This can be done by calling 
-      `System2GetCommandReturnValue()` and check the returned result.
-      You can read `ReadRedirectedIOAsyncExample()` as reference on how to do this.
+NOTE: The process _may_ output more data later even if this function returns `SYSTEM2_RESULT_SUCCESS`.
+      Otherwise if the process has ended, then all error output is captured.
 
 Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
@@ -281,13 +273,9 @@ returned result could be `SYSTEM2_RESULT_COMMAND_NOT_FINISHED` where the command
 If `timeoutSec` is < 0, this function will block indefinitely until the command has finished one way 
 or the other.
 
-NOTE: The return value can be retrieved only when the command is finished. 
-      If redirect (for input/output) is true, the command finishes only after it has received all 
-      it's input and after the caller/invoker have received all the output.
-      
-      In other words, if you have set `RedirectOutput` to `true` and the command has output any data, 
-      this function will never return `SYSTEM2_RESULT_SUCCESS` if you have never called 
-      `System2ReadFromOutput()` prior to this.
+NOTE: If you have are capturing output/stderr, this function will _may_ never return 
+      `SYSTEM2_RESULT_SUCCESS` if you have not received all the data.
+      In which case, you should call `System2ReadFromOutput()` (Or stderr variant) prior to this.
 
 Could return the following results:
 - SYSTEM2_RESULT_SUCCESS

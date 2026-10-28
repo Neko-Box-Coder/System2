@@ -28,32 +28,47 @@ int main(int argc, char** argv)
         commandInfo.RedirectOutput = true;
     }
 
+    SYSTEM2_RESULT result;
+    
     //Run the command in shell (subprocess is also available, see main.c)
     {
         #if defined(__unix__) || defined(__APPLE__)
-            System2Run("read testVar && echo testVar is \\\"$testVar\\\"", &commandInfo);
+            result = System2Run("read testVar && echo testVar is \\\"$testVar\\\"", &commandInfo);
         #elif
-            System2Run("set /p testVar= && echo testVar is \"!testVar!\"", &commandInfo);
+            result = System2Run("set /p testVar= && echo testVar is \"!testVar!\"", &commandInfo);
         #endif
+        
+        if(result != SYSTEM2_RESULT_SUCCESS)
+            return 1;
     }
+    
     
     //Send input to the command
     {
         char input[] = "test content\n";
-        System2WriteToInput(&commandInfo, input, sizeof(input));
+        result = System2WriteToInput(&commandInfo, input, sizeof(input));
+        if(result != SYSTEM2_RESULT_SUCCESS)
+            return 1;
+    }
+    
+    //Capture output
+    char outputBuffer[1024];
+    {
+        uint32_t bytesRead = 0;
+        
+        result = System2ReadFromOutput(&commandInfo, outputBuffer, 1023, &bytesRead);
+        if(result != SYSTEM2_RESULT_SUCCESS)
+            return 1;
+        
+        outputBuffer[bytesRead] = 0;
     }
     
     //Wait for command to finish and get return code
-    int returnCode = -1;
-    System2GetCommandReturnValue(&commandInfo, -1, &returnCode);
-    
-    //Capture output and print it
     {
-        char outputBuffer[1024];
-        uint32_t bytesRead = 0;
-        
-        System2ReadFromOutput(&commandInfo, outputBuffer, 1023, &bytesRead);
-        outputBuffer[bytesRead] = 0;
+        int returnCode = -1;
+        result = System2GetCommandReturnValue(&commandInfo, -1, &returnCode);
+        if(result != SYSTEM2_RESULT_SUCCESS)
+            return 1;
         
         printf("%s\n", outputBuffer);
         printf("%s: %d\n", "Command has executed with return value", returnCode);
