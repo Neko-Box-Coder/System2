@@ -34,7 +34,7 @@ int main(int argc, char** argv)
     {
         #if defined(__unix__) || defined(__APPLE__)
             result = System2Run("read testVar && echo testVar is \\\"$testVar\\\"", &commandInfo);
-        #elif
+        #elif defined(_WIN32)
             result = System2Run("set /p testVar= && echo testVar is \"!testVar!\"", &commandInfo);
         #endif
         
@@ -51,6 +51,15 @@ int main(int argc, char** argv)
             return 1;
     }
     
+    //Wait for command to finish and get return code
+    int returnCode = -1;
+    {
+        result = System2GetCommandReturnValue(&commandInfo, -1, &returnCode);
+        if(result != SYSTEM2_RESULT_SUCCESS)
+            return 1;
+    }
+    
+    
     //Capture output
     char outputBuffer[1024];
     {
@@ -63,16 +72,10 @@ int main(int argc, char** argv)
         outputBuffer[bytesRead] = 0;
     }
     
-    //Wait for command to finish and get return code
-    {
-        int returnCode = -1;
-        result = System2GetCommandReturnValue(&commandInfo, -1, &returnCode);
-        if(result != SYSTEM2_RESULT_SUCCESS)
-            return 1;
-        
-        printf("%s\n", outputBuffer);
-        printf("%s: %d\n", "Command has executed with return value", returnCode);
-    }
+    
+    
+    printf("%s\n", outputBuffer);
+    printf("%s: %d\n", "Command has executed with return value", returnCode);
     
     System2CleanupCommand(&commandInfo);
     return 0;
@@ -226,8 +229,14 @@ void ReadRedirectedIOAsyncExample(System2CommandInfo commandInfo)
     int returnCode = -1;
     char outputBuffer[1024];
     SYSTEM2_RESULT result;
-    do
-    {
+    //do
+    //{
+        
+        result = System2GetCommandReturnValue(&commandInfo, -1, &returnCode);
+    //}
+    //while(result == SYSTEM2_RESULT_COMMAND_NOT_FINISHED);
+    
+    EXIT_IF_FAILED(result);
         do
         {
             uint32_t bytesRead = 0;
@@ -236,12 +245,8 @@ void ReadRedirectedIOAsyncExample(System2CommandInfo commandInfo)
             printf("%s", outputBuffer);
         }
         while(result == SYSTEM2_RESULT_READ_NOT_FINISHED);
-        
-        result = System2GetCommandReturnValue(&commandInfo, 0, &returnCode);
-    }
-    while(result == SYSTEM2_RESULT_COMMAND_NOT_FINISHED);
-    
-    EXIT_IF_FAILED(result);
+        EXIT_IF_FAILED(result);
+
     printf("%s: %d\n", "1st command has finished with return value", returnCode);
     
     result = System2CleanupCommand(&commandInfo);
