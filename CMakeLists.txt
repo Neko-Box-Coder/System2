@@ -9,7 +9,8 @@ set(SYSTEM2_USE_SOURCE OFF CACHE BOOL "Build source version of System2")
 set(SYSTEM2_POSIX_SPAWN OFF CACHE BOOL "Use posix_spawn() instead of fork()")
 set(SYSTEM2_TEST_MEMORY OFF CACHE BOOL "Test memory commitment")
 set(SYSTEM2_BUILD_EXAMPLES OFF CACHE BOOL "Build System2 examples?")
-set(SYSTEM2_MIN_EXAMPLES OFF CACHE BOOL "Build minimum(readme) example instead?")
+set(SYSTEM2_MIN_EXAMPLE OFF CACHE BOOL "Build minimum(readme) example instead?")
+set(SYSTEM2_BUILD_CPP_EXAMPLE ON CACHE BOOL "Build example as cpp as well?")
 
 if(SYSTEM2_USE_SOURCE)
     add_library(System2 "${CMAKE_CURRENT_LIST_DIR}/System2.c")
@@ -51,13 +52,15 @@ if(SYSTEM2_BUILD_EXAMPLES)
                                                         $<$<BOOL:${SYSTEM2_MIN_EXAMPLE}>:SYSTEM2_MIN_EXAMPLE=1>)
     target_link_libraries(System2Example System2)
     
-    add_executable(System2ExampleCpp "${CMAKE_CURRENT_LIST_DIR}/main.cpp")
-    
-    target_compile_definitions(System2ExampleCpp PRIVATE    $<$<BOOL:${SYSTEM2_USE_SOURCE}>:SYSTEM2_USE_SOURCE=1>
-                                                            $<$<BOOL:${SYSTEM2_TEST_MEMORY}>:SYSTEM2_TEST_MEMORY=1>
-                                                            $<$<BOOL:${SYSTEM2_MIN_EXAMPLE}>:SYSTEM2_MIN_EXAMPLE=1>)
-    target_link_libraries(System2ExampleCpp System2)
-    set_target_properties(System2ExampleCpp PROPERTIES CXX_STANDARD 11)
+    if(SYSTEM2_BUILD_CPP_EXAMPLE)
+        add_executable(System2ExampleCpp "${CMAKE_CURRENT_LIST_DIR}/main.cpp")
+        
+        target_compile_definitions(System2ExampleCpp PRIVATE    $<$<BOOL:${SYSTEM2_USE_SOURCE}>:SYSTEM2_USE_SOURCE=1>
+                                                                $<$<BOOL:${SYSTEM2_TEST_MEMORY}>:SYSTEM2_TEST_MEMORY=1>
+                                                                $<$<BOOL:${SYSTEM2_MIN_EXAMPLE}>:SYSTEM2_MIN_EXAMPLE=1>)
+        target_link_libraries(System2ExampleCpp System2)
+        set_target_properties(System2ExampleCpp PROPERTIES CXX_STANDARD 11)
+    endif()
 
     add_executable(VerifyArgs "${CMAKE_CURRENT_LIST_DIR}/VerifyArgs.c")
 endif()
