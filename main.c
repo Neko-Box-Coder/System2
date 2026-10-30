@@ -15,49 +15,61 @@
 
 #if SYSTEM2_MIN_EXAMPLE
 //This is the readme example
-int main(int argc, char** argv) 
+int main() 
 {
-    (void)argc;
-    (void)argv;
-    
     //Initialize command info
     System2CommandInfo commandInfo;
     {
         memset(&commandInfo, 0, sizeof(System2CommandInfo));
-        commandInfo.RedirectInput = true;
-        commandInfo.RedirectOutput = true;
+        commandInfo.RedirectInput = true;   //Send input
+        commandInfo.RedirectOutput = true;  //Capture output
     }
 
+    SYSTEM2_RESULT result;
+    
     //Run the command in shell (subprocess is also available, see main.c)
     {
         #if defined(__unix__) || defined(__APPLE__)
-            System2Run("read testVar && echo testVar is \\\"$testVar\\\"", &commandInfo);
-        #elif
-            System2Run("set /p testVar= && echo testVar is \"!testVar!\"", &commandInfo);
+            result = System2Run("read testVar && echo testVar is \\\"$testVar\\\"", &commandInfo);
+        #elif defined(_WIN32)
+            result = System2Run("set /p testVar= && echo testVar is \"!testVar!\"", &commandInfo);
         #endif
+        
+        if(result != SYSTEM2_RESULT_SUCCESS)
+            return 1;
     }
     
     //Send input to the command
     {
         char input[] = "test content\n";
-        System2WriteToInput(&commandInfo, input, sizeof(input));
+        result = System2WriteToInput(&commandInfo, input, sizeof(input));
+        if(result != SYSTEM2_RESULT_SUCCESS)
+            return 1;
+    }
+    
+    //NOTE: If the output is not read (when redirected), the running command CAN be stuck and never 
+    //      ends.
+    
+    //Capture output
+    char outputBuffer[1024];
+    {
+        uint32_t bytesRead = 0;
+        result = System2ReadFromOutput(&commandInfo, outputBuffer, 1023, &bytesRead);
+        if(result != SYSTEM2_RESULT_SUCCESS)    //`result` can be `SYSTEM2_RESULT_READ_NOT_FINISHED` 
+            return 1;                           //if there's more data to read
+        outputBuffer[bytesRead] = 0;
     }
     
     //Wait for command to finish and get return code
     int returnCode = -1;
-    System2GetCommandReturnValue(&commandInfo, -1, &returnCode);
-    
-    //Capture output and print it
     {
-        char outputBuffer[1024];
-        uint32_t bytesRead = 0;
-        
-        System2ReadFromOutput(&commandInfo, outputBuffer, 1023, &bytesRead);
-        outputBuffer[bytesRead] = 0;
-        
-        printf("%s\n", outputBuffer);
-        printf("%s: %d\n", "Command has executed with return value", returnCode);
+        result = System2GetCommandReturnValue(&commandInfo, -1, &returnCode);
+        if(result != SYSTEM2_RESULT_SUCCESS)
+            return 1;
     }
+    
+    printf("%s\n", outputBuffer);
+    printf("%s: %d\n", "Command has executed with return value", returnCode);
     
     System2CleanupCommand(&commandInfo);
     return 0;
@@ -221,6 +233,7 @@ void ReadRedirectedIOAsyncExample(System2CommandInfo commandInfo)
             printf("%s", outputBuffer);
         }
         while(result == SYSTEM2_RESULT_READ_NOT_FINISHED);
+        EXIT_IF_FAILED(result);
         
         result = System2GetCommandReturnValue(&commandInfo, 0, &returnCode);
     }
@@ -387,8 +400,8 @@ void TermExample(void)
     
     int returnCode = -1;
     result = System2GetCommandReturnValue(&commandInfo, 0, &returnCode);
-    printf( "GetCommandReturnValue Result after System2Term is %d, returnCode is %d\n",  
-            (int)result, 
+    printf( "GetCommandReturnValue Result after System2Term is %s, returnCode is %d\n",  
+            System2ResultToString(result), 
             returnCode);
     
     result = System2CleanupCommand(&commandInfo);
@@ -420,8 +433,8 @@ void KillExample(void)
     
     int returnCode = -1;
     result = System2GetCommandReturnValue(&commandInfo, 0, &returnCode);
-    printf( "GetCommandReturnValue Result after System2Kill is %d, returnCode is %d\n",  
-            (int)result, 
+    printf( "GetCommandReturnValue Result after System2Kill is %s, returnCode is %d\n",  
+            System2ResultToString(result), 
             returnCode);
     
     result = System2CleanupCommand(&commandInfo);

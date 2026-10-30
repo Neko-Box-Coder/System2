@@ -127,6 +127,9 @@ typedef enum
     SYSTEM2_RESULT_POSIX_SPAWN_TIMEOUT_NOT_SUPPORTED = -19,
 } SYSTEM2_RESULT;
 
+//Returns C string for a given SYSTEM2_RESULT, or NULL if invalid SYSTEM2_RESULT
+SYSTEM2_FUNC_PREFIX const char* System2ResultToString(SYSTEM2_RESULT res);
+
 /*
 Runs the command in system shell just like the `system()` funcion with the given settings 
 passed with `inOutCommandInfo`.
@@ -197,12 +200,10 @@ this function can be called again until SYSTEM2_RESULT_SUCCESS to retrieve the r
 
 `outBytesRead` determines how many bytes have been read for **this** function call
 
-NOTE: Even if this function returns `SYSTEM2_RESULT_SUCCESS`, it is still possible that the 
-      process can output more data later. You will need to check if the process has exited to 
-      determine if you have received all the data, since the process won't exit until all the data 
-      is captured (if you have set redirect to true). This can be done by calling 
-      `System2GetCommandReturnValue()` and check the returned result.
-      You can read `ReadRedirectedIOAsyncExample()` as reference on how to do this.
+NOTE: The process _may_ output more data later even if this function returns `SYSTEM2_RESULT_SUCCESS`.
+      Otherwise if the process has ended, then all output is captured.
+
+TODO: This can be blocked until the command terminates or outputs some data. Make this non block
 
 Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
@@ -227,12 +228,10 @@ this function can be called again until SYSTEM2_RESULT_SUCCESS to retrieve the r
 
 `outBytesRead` determines how many bytes have been read for **this** function call
 
-NOTE: Even if this function returns `SYSTEM2_RESULT_SUCCESS`, it is still possible that the 
-      process can output more data later. You will need to check if the process has exited to 
-      determine if you have received all the data, since the process won't exit until all the data 
-      is captured (if you have set redirect to true). This can be done by calling 
-      `System2GetCommandReturnValue()` and check the returned result.
-      You can read `ReadRedirectedIOAsyncExample()` as reference on how to do this.
+NOTE: The process _may_ output more data later even if this function returns `SYSTEM2_RESULT_SUCCESS`.
+      Otherwise if the process has ended, then all error output is captured.
+
+TODO: This can be blocked until the command terminates or outputs some data. Make this non block
 
 Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
@@ -281,13 +280,10 @@ returned result could be `SYSTEM2_RESULT_COMMAND_NOT_FINISHED` where the command
 If `timeoutSec` is < 0, this function will block indefinitely until the command has finished one way 
 or the other.
 
-NOTE: The return value can be retrieved only when the command is finished. 
-      If redirect (for input/output) is true, the command finishes only after it has received all 
-      it's input and after the caller/invoker have received all the output.
-      
-      In other words, if you have set `RedirectOutput` to `true` and the command has output any data, 
-      this function will never return `SYSTEM2_RESULT_SUCCESS` if you have never called 
-      `System2ReadFromOutput()` prior to this.
+NOTE: If you have are capturing output/stderr, this function will _may_ never return 
+      `SYSTEM2_RESULT_SUCCESS` if you have not received all the data 
+      (Especially when the process has output large amount of data to output/stderr).
+      In which case, you should call `System2ReadFromOutput()` (Or stderr variant) prior to this.
 
 Could return the following results:
 - SYSTEM2_RESULT_SUCCESS
@@ -2287,6 +2283,63 @@ SYSTEM2_RESULT Internal_System2ValidateCustomEnv(System2CommandInfo* commandInfo
         return SYSTEM2_RESULT_SUCCESS;
     }
 #endif //defined(_WIN32)
+
+SYSTEM2_FUNC_PREFIX const char* System2ResultToString(SYSTEM2_RESULT res)
+{
+    switch(res)
+    {
+        case SYSTEM2_RESULT_WINDOWS_TERM_NO_WINDOW:
+            return "SYSTEM2_RESULT_WINDOWS_TERM_NO_WINDOW";
+        case SYSTEM2_RESULT_COMMAND_TERMINATED:
+            return "SYSTEM2_RESULT_COMMAND_TERMINATED";
+        case SYSTEM2_RESULT_COMMAND_NOT_FINISHED:
+            return "SYSTEM2_RESULT_COMMAND_NOT_FINISHED";
+        case SYSTEM2_RESULT_READ_NOT_FINISHED:
+            return "SYSTEM2_RESULT_READ_NOT_FINISHED";
+        case SYSTEM2_RESULT_SUCCESS:
+            return "SYSTEM2_RESULT_SUCCESS";
+        case SYSTEM2_RESULT_PIPE_CREATE_FAILED:
+            return "SYSTEM2_RESULT_PIPE_CREATE_FAILED";
+        case SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED:
+            return "SYSTEM2_RESULT_PIPE_FD_CLOSE_FAILED";
+        case SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED:
+            return "SYSTEM2_RESULT_CREATE_CHILD_PROCESS_FAILED";
+        case SYSTEM2_RESULT_READ_FAILED:
+            return "SYSTEM2_RESULT_READ_FAILED";
+        case SYSTEM2_RESULT_WRITE_FAILED:
+            return "SYSTEM2_RESULT_WRITE_FAILED";
+        case SYSTEM2_RESULT_COMMAND_WAIT_FAILED:
+            return "SYSTEM2_RESULT_COMMAND_WAIT_FAILED";
+        case SYSTEM2_RESULT_TIMEOUT_SIGPROCMASK_FAILED:
+            return "SYSTEM2_RESULT_TIMEOUT_SIGPROCMASK_FAILED";
+        case SYSTEM2_RESULT_UNSUPPORTED_PLATFORM:
+            return "SYSTEM2_RESULT_UNSUPPORTED_PLATFORM";
+        case SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED:
+            return "SYSTEM2_RESULT_COMMAND_CONSTRUCT_FAILED";
+        case SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DESTROY_FAILED:
+            return "SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DESTROY_FAILED";
+        case SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DUP2_FAILED:
+            return "SYSTEM2_RESULT_POSIX_SPAWN_FILE_ACTION_DUP2_FAILED";
+        case SYSTEM2_RESULT_POSIX_SPAWN_RUN_DIRECTORY_NOT_SUPPORTED:
+            return "SYSTEM2_RESULT_POSIX_SPAWN_RUN_DIRECTORY_NOT_SUPPORTED";
+        case SYSTEM2_RESULT_INVALID_ARGUMENT:
+            return "SYSTEM2_RESULT_INVALID_ARGUMENT";
+        case SYSTEM2_RESULT_MALLOC_FAILED:
+            return "SYSTEM2_RESULT_MALLOC_FAILED";
+        case SYSTEM2_RESULT_WINDOWS_UNICODE_FAILED:
+            return "SYSTEM2_RESULT_WINDOWS_UNICODE_FAILED";
+        case SYSTEM2_RESULT_WINDOWS_SET_ENV_FAILED:
+            return "SYSTEM2_RESULT_WINDOWS_SET_ENV_FAILED";
+        case SYSTEM2_RESULT_KILL_FAILED:
+            return "SYSTEM2_RESULT_KILL_FAILED";
+        case SYSTEM2_RESULT_TERM_FAILED:
+            return "SYSTEM2_RESULT_TERM_FAILED";
+        case SYSTEM2_RESULT_POSIX_SPAWN_TIMEOUT_NOT_SUPPORTED:
+            return "SYSTEM2_RESULT_POSIX_SPAWN_TIMEOUT_NOT_SUPPORTED";
+        default:
+            return NULL;
+    }
+}
 
 SYSTEM2_FUNC_PREFIX SYSTEM2_RESULT System2Run(  const char* command, 
                                                 System2CommandInfo* inOutCommandInfo)
