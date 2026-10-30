@@ -1,6 +1,6 @@
 {
     "name": "system2",
-    "version": "v1.0.1",
+    "version": "v1.0.2",
     "repo": "Neko-Box-Coder/System2",
     "keywords": [ "shell", "subprocess", "system" ],
     "license": "Unlicense",
